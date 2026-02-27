@@ -1,0 +1,12 @@
+{
+  "name": "terraria-clone-server",
+  "version": "1.0.0",
+  "description": "Multiplayer server for my game",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "socket.io": "^4.7.0"
+  }
+}
