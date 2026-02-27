@@ -81,7 +81,7 @@
     </div>
 
     <div id="loading-screen">
-        <div style="margin-bottom: 20px;">Generating World...</div>
+        <div id="loading-text" style="margin-bottom: 20px;">Generating World...</div>
         <div id="loading-progress" style="width: 300px; height: 20px; background: #222; border: 2px solid #fff;"><div id="loading-bar" style="width: 0%; height: 100%; background: #41980a;"></div></div>
     </div>
 
@@ -132,17 +132,49 @@
         const socket = io("https://vrajerria-github-io.onrender.com", { autoConnect: false });
         let otherPlayers = {};
         let currentRoom = null;
+        let isHost = true; 
+        let serverEnemies = [];
+        let serverProjectiles = [];
 
         socket.on("updatePlayers", (players) => {
             otherPlayers = players;
             if (socket.id && otherPlayers[socket.id]) delete otherPlayers[socket.id];
         });
 
-        socket.on("playerMoved", (data) => {
+        socket.on("playerUpdated", (data) => {
             if (data.id === socket.id) return;
             if (!otherPlayers[data.id]) otherPlayers[data.id] = {};
             otherPlayers[data.id].x = data.x;
             otherPlayers[data.id].y = data.y;
+            otherPlayers[data.id].equip = data.equip;
+            otherPlayers[data.id].activeItem = data.activeItem;
+            otherPlayers[data.id].dir = data.dir;
+            otherPlayers[data.id].swingAnim = data.swingAnim;
+        });
+
+        socket.on("worldData", (data) => {
+            world = data.world;
+            worldSurface = data.worldSurface;
+            $('loading-screen').style.display = 'none';
+            startGameLoop();
+        });
+
+        socket.on("blockUpdated", (data) => {
+            if (world[data.x] && world[data.x][data.y] !== undefined) {
+                world[data.x][data.y] = data.id;
+                spawnParticles(data.x * TILE_SIZE, data.y * TILE_SIZE, getBlockColor(data.id), 8);
+            }
+        });
+
+        socket.on("entitiesSynced", (data) => {
+            if (!isHost) {
+                serverEnemies = data.enemies;
+                serverProjectiles = data.projectiles;
+            }
+        });
+
+        socket.on("spawnProjectile", (data) => {
+            if (isHost) projectiles.push(data);
         });
 
         // --- GAME VARIABLES & SETUP ---
@@ -150,9 +182,9 @@
         const $ = id => document.getElementById(id); document.addEventListener('contextmenu', e => e.preventDefault());
         function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; ctx.imageSmoothingEnabled = false; } window.addEventListener('resize', resize); resize();
 
-        let gameState = 'MENU'; // MENU, PLAYING, PAUSED
+        let gameState = 'MENU'; 
         let currentSlotId = null;
-        let multiplayerMode = null; // 'single', 'host', 'client'
+        let multiplayerMode = null; 
 
         // --- EXPANDED SCALE CONSTANTS ---
         const TILE_SIZE = 32, WORLD_WIDTH = 800, WORLD_HEIGHT = 200, GRAVITY = 0.4, TERMINAL_VELOCITY = 12, REACH = TILE_SIZE * 5;
@@ -232,10 +264,10 @@
             inventory[0] = { id: ITEMS.SWORD, count: 1 }; inventory[1] = { id: ITEMS.PICKAXE, count: 1 }; inventory[2] = { id: ITEMS.AXE, count: 1 };
             inventory[3] = { id: ITEMS.BOW, count: 1 }; inventory[4] = { id: ITEMS.ARROW, count: 100 }; inventory[5] = { id: BLOCKS.WOOD, count: 99 };
             player.hp = 100; player.x = TILE_SIZE*(WORLD_WIDTH/2); player.y = 0;
-            player.lastX = 0; player.lastY = 0;
+            player.lastX = 0; player.lastY = 0; player.lastDir = 1;
             chestData = {}; world = []; worldSurface = [];
             gameTime = 6000; enemies = []; projectiles = []; particles = [];
-            otherPlayers = {};
+            otherPlayers = {}; serverEnemies = []; serverProjectiles = [];
         }
 
         const RECIPES = [
@@ -324,18 +356,26 @@
             if (room) {
                 multiplayerMode = 'client';
                 currentRoom = room;
+                isHost = false;
                 $('multi-select').classList.add('hidden');
                 $('loading-screen').style.display = 'flex';
+                $('loading-progress').style.display = 'none';
+                $('loading-text').innerText = "Downloading World Data...";
                 resetPlayerState();
-                setTimeout(() => { generateWorld(); startGameLoop(); }, 100);
+                
+                socket.connect();
+                socket.emit("joinWorld", currentRoom);
             }
         }
 
         function startNewGame(slotId) {
             currentSlotId = slotId;
             currentRoom = slotId;
+            isHost = true;
             $('world-select').classList.add('hidden');
             $('loading-screen').style.display = 'flex';
+            $('loading-progress').style.display = 'block';
+            $('loading-text').innerText = "Generating World...";
             resetPlayerState();
             setTimeout(() => { generateWorld(); startGameLoop(); }, 100);
         }
@@ -351,6 +391,7 @@
             if(s) { 
                 currentSlotId = slotId;
                 currentRoom = slotId;
+                isHost = true;
                 let d = JSON.parse(s); 
                 world=d.world; worldSurface=d.worldSurface; inventory=d.inventory; equipment=d.equipment; chestData=d.chestData||{}; gameTime=d.time; player.x=d.px; player.y=d.py; player.hp=d.hp; 
                 $('world-select').classList.add('hidden');
@@ -366,8 +407,11 @@
             recalcStats();
             
             if (multiplayerMode === 'host' || multiplayerMode === 'client') {
-                socket.connect();
-                socket.emit("joinWorld", currentRoom);
+                if (!socket.connected) socket.connect();
+                if (isHost) {
+                    socket.emit("joinWorld", currentRoom);
+                    socket.emit("hostWorld", { worldId: currentRoom, world: world, worldSurface: worldSurface });
+                }
             } else {
                 if (socket.connected) socket.disconnect();
             }
@@ -540,12 +584,30 @@
         }
         function checkOverlap(r1, r2) { return !(r2.x > r1.x + r1.width || r2.x + r2.width < r1.x || r2.y > r1.y + r1.height || r2.y + r2.height < r1.y); }
 
+        // --- CENTRALIZED PLAYER DRAW FUNCTION ---
+        function drawPlayerSprite(px, py, pEquip, pItem, pDir, pSwing, cx, cy) {
+            if (!pEquip) pEquip = [];
+            ctx.fillStyle = '#fce2c4'; ctx.fillRect(Math.floor(px-cx+4), Math.floor(py-cy), 12, 12); 
+            ctx.fillStyle = pEquip[1] && pEquip[1].id === ITEMS.CHEST_ARMOR ? '#cda434' : '#3a4b7c'; ctx.fillRect(Math.floor(px-cx+2), Math.floor(py-cy+12), 16, 16); 
+            ctx.fillStyle = pEquip[2] && pEquip[2].id === ITEMS.LEGS ? '#cda434' : '#555'; ctx.fillRect(Math.floor(px-cx+4), Math.floor(py-cy+28), 4, 12); ctx.fillRect(Math.floor(px-cx+12), Math.floor(py-cy+28), 4, 12); 
+            if(pEquip[0] && pEquip[0].id === ITEMS.HELMET) { ctx.fillStyle = '#cda434'; ctx.fillRect(Math.floor(px-cx+2), Math.floor(py-cy-2), 16, 10); }
+
+            if (pSwing > 0 && pItem && pItem.id !== 0) {
+                let isTool = ITEM_DATA[pItem.id];
+                if(isTool && isTool.type !== TOOL_TYPES.BOW && isTool.type !== TOOL_TYPES.MAGIC && SPRITES[pItem.id]) { 
+                    ctx.save(); ctx.translate(pDir===1 ? px+20-cx : px-cx, py+10-cy);
+                    let rot = (1 - (pSwing/isTool.use)) * Math.PI; if(pDir===-1) rot = -rot;
+                    ctx.rotate(rot); ctx.drawImage(SPRITES[pItem.id], -16, -16); ctx.restore();
+                }
+            }
+        }
+
         let projectiles = []; let miningData = { x: -1, y: -1, progress: 0 };
 
         const player = {
             x: TILE_SIZE*(WORLD_WIDTH/2), y: 0, width: 20, height: 40, vx: 0, vy: 0, baseSpeed: 5, jumpPower: 6, grounded: false, dir: 1, 
             isJumping: false, jumpFrames: 0, maxJumps: 1, jumpsDone: 0, hp: 100, maxHp: 100, iFrames: 0, attkTimer: 0, swingAnim: 0, defense: 0, 
-            lastX: 0, lastY: 0,
+            lastX: 0, lastY: 0, lastDir: 1,
             update: function() {
                 if (this.iFrames > 0) this.iFrames--; if (this.attkTimer > 0) this.attkTimer--; if (this.swingAnim > 0) this.swingAnim--;
                 let jKey = keys['KeyW'] || keys['Space'] || keys['ArrowUp']; let pJKey = prevKeys['KeyW'] || prevKeys['Space'] || prevKeys['ArrowUp'];
@@ -583,12 +645,16 @@
                     if (isTool.type === TOOL_TYPES.BOW) {
                         if (consumeItem(ITEMS.ARROW, 1)) {
                             let pCx = this.x + this.width/2, pCy = this.y + this.height/2, angle = Math.atan2((mouse.y + camera.y) - pCy, (mouse.x + camera.x) - pCx);
-                            projectiles.push({ type: 'arrow', x: pCx, y: pCy, vx: Math.cos(angle)*12, vy: Math.sin(angle)*12, life: 100, dmg: isTool.dmg }); triggerUI();
+                            let pData = { type: 'arrow', x: pCx, y: pCy, vx: Math.cos(angle)*12, vy: Math.sin(angle)*12, life: 100, dmg: isTool.dmg };
+                            if (isHost) projectiles.push(pData); else if (socket.connected) socket.emit("spawnProjectile", { worldId: currentRoom, ...pData });
+                            triggerUI();
                         }
                     } else if (isTool.type === TOOL_TYPES.MAGIC) {
                         let pCx = this.x + this.width/2, pCy = this.y + this.height/2, angle = Math.atan2((mouse.y + camera.y) - pCy, (mouse.x + camera.x) - pCx);
-                        projectiles.push({ type: 'magic', x: pCx, y: pCy, vx: Math.cos(angle)*8, vy: Math.sin(angle)*8, life: 150, dmg: isTool.dmg }); triggerUI();
-                    } else if (isTool.type !== TOOL_TYPES.CONSUME && isTool.type !== TOOL_TYPES.PICKAXE && isTool.type !== TOOL_TYPES.AXE) {
+                        let pData = { type: 'magic', x: pCx, y: pCy, vx: Math.cos(angle)*8, vy: Math.sin(angle)*8, life: 150, dmg: isTool.dmg };
+                        if (isHost) projectiles.push(pData); else if (socket.connected) socket.emit("spawnProjectile", { worldId: currentRoom, ...pData });
+                        triggerUI();
+                    } else if (isTool.type !== TOOL_TYPES.CONSUME && isTool.type !== TOOL_TYPES.PICKAXE && isTool.type !== TOOL_TYPES.AXE && isHost) {
                         let box = { x: this.dir===1 ? this.x+this.width : this.x-30, y: this.y, width: 30, height: this.height };
                         enemies.forEach(e => { if (checkOverlap(box, e)) { e.hp -= isTool.dmg; e.vx = this.dir*6; e.vy = -4; e.iFrames = 10; spawnParticles(e.x, e.y, '#f00', 5); }});
                     }
@@ -596,10 +662,9 @@
 
                 // MULTIPLAYER SYNC
                 if ((multiplayerMode === 'host' || multiplayerMode === 'client') && socket.connected && currentRoom) {
-                    if (this.x !== this.lastX || this.y !== this.lastY) {
-                        socket.emit("playerMove", { worldId: currentRoom, x: this.x, y: this.y });
-                        this.lastX = this.x;
-                        this.lastY = this.y;
+                    if (this.x !== this.lastX || this.y !== this.lastY || this.swingAnim > 0 || this.dir !== this.lastDir) {
+                        socket.emit("playerUpdate", { worldId: currentRoom, x: this.x, y: this.y, equip: equipment, activeItem: inventory[activeSlot], dir: this.dir, swingAnim: this.swingAnim });
+                        this.lastX = this.x; this.lastY = this.y; this.lastDir = this.dir;
                     }
                 }
             },
@@ -611,25 +676,13 @@
             },
             draw: function(cx, cy) {
                 if (this.iFrames > 0 && Math.floor(Date.now()/100)%2===0) return;
-                ctx.fillStyle = '#fce2c4'; ctx.fillRect(Math.floor(this.x-cx+4), Math.floor(this.y-cy), 12, 12); 
-                ctx.fillStyle = equipment[1] && equipment[1].id === ITEMS.CHEST_ARMOR ? '#cda434' : '#3a4b7c'; ctx.fillRect(Math.floor(this.x-cx+2), Math.floor(this.y-cy+12), 16, 16); 
-                ctx.fillStyle = equipment[2] && equipment[2].id === ITEMS.LEGS ? '#cda434' : '#555'; ctx.fillRect(Math.floor(this.x-cx+4), Math.floor(this.y-cy+28), 4, 12); ctx.fillRect(Math.floor(this.x-cx+12), Math.floor(this.y-cy+28), 4, 12); 
-                if(equipment[0] && equipment[0].id === ITEMS.HELMET) { ctx.fillStyle = '#cda434'; ctx.fillRect(Math.floor(this.x-cx+2), Math.floor(this.y-cy-2), 16, 10); }
-
-                if (this.swingAnim > 0) {
-                    let actItem = inventory[activeSlot], isTool = ITEM_DATA[actItem?.id];
-                    if(isTool && isTool.type !== TOOL_TYPES.BOW && isTool.type !== TOOL_TYPES.MAGIC && SPRITES[actItem.id]) { 
-                        ctx.save(); ctx.translate(this.dir===1 ? this.x+this.width-cx : this.x-cx, this.y+10-cy);
-                        let rot = (1 - (this.swingAnim/isTool.use)) * Math.PI; if(this.dir===-1) rot = -rot;
-                        ctx.rotate(rot); ctx.drawImage(SPRITES[actItem.id], -16, -16); ctx.restore();
-                    }
-                }
+                drawPlayerSprite(this.x, this.y, equipment, inventory[activeSlot], this.dir, this.swingAnim, cx, cy);
             }
         };
 
         // --- NEW ENEMIES & BOSSES ---
         class Slime {
-            constructor(x, y) { this.x=x; this.y=y; this.width=24; this.height=16; this.vx=1; this.vy=0; this.jumpPower=6; this.grounded=false; this.jTimer=Math.floor(Math.random()*60); this.hp=30; this.maxHp=30; this.iFrames=0; this.isBoss=false; }
+            constructor(x, y) { this.type="Slime"; this.x=x; this.y=y; this.width=24; this.height=16; this.vx=1; this.vy=0; this.jumpPower=6; this.grounded=false; this.jTimer=Math.floor(Math.random()*60); this.hp=30; this.maxHp=30; this.iFrames=0; this.isBoss=false; }
             update() {
                 if(this.iFrames>0) this.iFrames--; this.jTimer--;
                 let inW = world[Math.floor(this.x/TILE_SIZE)] && world[Math.floor(this.x/TILE_SIZE)][Math.floor(this.y/TILE_SIZE)]===BLOCKS.WATER;
@@ -641,11 +694,10 @@
                 if(this.y > WORLD_HEIGHT*TILE_SIZE) this.hp = 0; 
                 if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(10); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
             }
-            draw(cx, cy) { ctx.fillStyle = this.iFrames>0 ? '#fff' : 'rgba(0,255,100,0.8)'; ctx.fillRect(Math.floor(this.x-cx), Math.floor(this.y-cy+4), this.width, this.height-4); ctx.fillRect(Math.floor(this.x-cx+4), Math.floor(this.y-cy), this.width-8, 4); }
         }
 
         class Crab {
-            constructor(x, y) { this.x=x; this.y=y; this.width=24; this.height=16; this.vx=0.8; this.vy=0; this.grounded=false; this.hp=60; this.maxHp=60; this.iFrames=0; this.isBoss=false; }
+            constructor(x, y) { this.type="Crab"; this.x=x; this.y=y; this.width=24; this.height=16; this.vx=0.8; this.vy=0; this.grounded=false; this.hp=60; this.maxHp=60; this.iFrames=0; this.isBoss=false; }
             update() {
                 if(this.iFrames>0) this.iFrames--;
                 let inW = world[Math.floor(this.x/TILE_SIZE)] && world[Math.floor(this.x/TILE_SIZE)][Math.floor(this.y/TILE_SIZE)]===BLOCKS.WATER;
@@ -656,11 +708,10 @@
                 if(this.y > WORLD_HEIGHT*TILE_SIZE) this.hp = 0; 
                 if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(20); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
             }
-            draw(cx, cy) { ctx.fillStyle = this.iFrames>0 ? '#fff' : '#c33'; ctx.fillRect(Math.floor(this.x-cx), Math.floor(this.y-cy+4), this.width, this.height-4); ctx.fillRect(Math.floor(this.x-cx-4), Math.floor(this.y-cy), 6, 8); ctx.fillRect(Math.floor(this.x-cx+this.width-2), Math.floor(this.y-cy), 6, 8); }
         }
 
         class Jellyfish {
-            constructor(x, y) { this.x=x; this.y=y; this.width=16; this.height=24; this.vx=0; this.vy=0; this.hp=40; this.maxHp=40; this.iFrames=0; this.timer=0; this.isBoss=false; }
+            constructor(x, y) { this.type="Jellyfish"; this.x=x; this.y=y; this.width=16; this.height=24; this.vx=0; this.vy=0; this.hp=40; this.maxHp=40; this.iFrames=0; this.timer=0; this.isBoss=false; }
             update() {
                 if(this.iFrames>0) this.iFrames--; this.timer--;
                 let inW = world[Math.floor(this.x/TILE_SIZE)] && world[Math.floor(this.x/TILE_SIZE)][Math.floor(this.y/TILE_SIZE)]===BLOCKS.WATER;
@@ -673,11 +724,10 @@
                 if(this.y > WORLD_HEIGHT*TILE_SIZE) this.hp = 0; 
                 if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(15); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
             }
-            draw(cx, cy) { ctx.fillStyle = this.iFrames>0 ? '#fff' : 'rgba(255,100,200,0.8)'; ctx.beginPath(); ctx.arc(Math.floor(this.x-cx+8), Math.floor(this.y-cy+8), 8, Math.PI, 0); ctx.fill(); ctx.fillRect(Math.floor(this.x-cx), Math.floor(this.y-cy+8), 16, 8); }
         }
 
         class Zombie {
-            constructor(x, y) { this.x=x; this.y=y; this.width=20; this.height=40; this.vx=1; this.vy=0; this.jumpPower=7; this.grounded=false; this.hp=45; this.maxHp=45; this.iFrames=0; this.isBoss=false; }
+            constructor(x, y) { this.type="Zombie"; this.x=x; this.y=y; this.width=20; this.height=40; this.vx=1; this.vy=0; this.jumpPower=7; this.grounded=false; this.hp=45; this.maxHp=45; this.iFrames=0; this.isBoss=false; }
             update() {
                 if(this.iFrames>0) this.iFrames--;
                 this.vy+=GRAVITY; if(this.vy>TERMINAL_VELOCITY) this.vy=TERMINAL_VELOCITY;
@@ -688,11 +738,10 @@
                 if(this.y > WORLD_HEIGHT*TILE_SIZE) this.hp = 0; 
                 if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(15); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
             }
-            draw(cx, cy) { ctx.fillStyle = this.iFrames>0 ? '#fff' : '#2e8b57'; ctx.fillRect(Math.floor(this.x-cx), Math.floor(this.y-cy), this.width, this.height); ctx.fillStyle='#000'; ctx.fillRect(Math.floor(this.x-cx+4), Math.floor(this.y-cy+4), 4, 4); ctx.fillRect(Math.floor(this.x-cx+12), Math.floor(this.y-cy+4), 4, 4); }
         }
 
         class Skeleton {
-            constructor(x, y) { this.x=x; this.y=y; this.width=20; this.height=40; this.vx=1; this.vy=0; this.jumpPower=8; this.grounded=false; this.hp=80; this.maxHp=80; this.iFrames=0; this.isBoss=false; }
+            constructor(x, y) { this.type="Skeleton"; this.x=x; this.y=y; this.width=20; this.height=40; this.vx=1; this.vy=0; this.jumpPower=8; this.grounded=false; this.hp=80; this.maxHp=80; this.iFrames=0; this.isBoss=false; }
             update() {
                 if(this.iFrames>0) this.iFrames--;
                 this.vy+=GRAVITY; if(this.vy>TERMINAL_VELOCITY) this.vy=TERMINAL_VELOCITY;
@@ -703,33 +752,30 @@
                 if(this.y > WORLD_HEIGHT*TILE_SIZE) this.hp = 0; 
                 if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(20); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
             }
-            draw(cx, cy) { ctx.fillStyle = this.iFrames>0 ? '#fff' : '#ddd'; ctx.fillRect(Math.floor(this.x-cx), Math.floor(this.y-cy), this.width, this.height); ctx.fillStyle='#000'; ctx.fillRect(Math.floor(this.x-cx+4), Math.floor(this.y-cy+4), 4, 4); ctx.fillRect(Math.floor(this.x-cx+12), Math.floor(this.y-cy+4), 4, 4); }
         }
 
         class DemonEye {
-            constructor(x, y) { this.x=x; this.y=y; this.width=20; this.height=20; this.vx=0; this.vy=0; this.hp=40; this.maxHp=40; this.iFrames=0; this.isBoss=false; }
+            constructor(x, y) { this.type="DemonEye"; this.x=x; this.y=y; this.width=20; this.height=20; this.vx=0; this.vy=0; this.hp=40; this.maxHp=40; this.iFrames=0; this.isBoss=false; }
             update() {
                 if(this.iFrames>0) this.iFrames--; let dx = player.x - this.x, dy = player.y - this.y, dist = Math.hypot(dx, dy);
                 if(dist < 600) { this.vx += (dx/dist)*0.15; this.vy += (dy/dist)*0.15; } this.vx *= 0.96; this.vy *= 0.96;
                 this.x+=this.vx; this.y+=this.vy;
                 if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(15); player.vx=(player.x>this.x)?5:-5; player.vy=-3; this.vx *= -1; this.vy *= -1; }
             }
-            draw(cx, cy) { ctx.fillStyle = this.iFrames>0 ? '#fff' : '#a00'; ctx.fillRect(Math.floor(this.x-cx), Math.floor(this.y-cy), this.width, this.height); ctx.fillStyle='#fff'; ctx.fillRect(Math.floor(this.x-cx+8), Math.floor(this.y-cy+8), 8, 8); ctx.fillStyle='#00f'; ctx.fillRect(Math.floor(this.x-cx+10+(this.vx>0?2:-2)), Math.floor(this.y-cy+10), 4, 4); }
         }
 
         class Eater {
-            constructor(x, y) { this.x=x; this.y=y; this.width=24; this.height=24; this.vx=0; this.vy=0; this.hp=40; this.maxHp=40; this.iFrames=0; this.isBoss=false; }
+            constructor(x, y) { this.type="Eater"; this.x=x; this.y=y; this.width=24; this.height=24; this.vx=0; this.vy=0; this.hp=40; this.maxHp=40; this.iFrames=0; this.isBoss=false; }
             update() {
                 if(this.iFrames>0) this.iFrames--; let dx = player.x - this.x, dy = player.y - this.y, dist = Math.hypot(dx, dy);
                 if(dist < 500) { this.vx += (dx/dist)*0.1; this.vy += (dy/dist)*0.1; } this.vx *= 0.95; this.vy *= 0.95;
                 this.x+=this.vx; this.y+=this.vy;
                 if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(15); player.vx=(player.x>this.x)?5:-5; player.vy=-3; this.vx *= -1; this.vy *= -1; }
             }
-            draw(cx, cy) { ctx.fillStyle = this.iFrames>0 ? '#fff' : '#6a0dad'; ctx.fillRect(Math.floor(this.x-cx), Math.floor(this.y-cy), this.width, this.height); ctx.fillStyle='#f00'; ctx.fillRect(Math.floor(this.x-cx+(this.vx>0?16:4)), Math.floor(this.y-cy+8), 4, 4); }
         }
 
         class EyeBoss {
-            constructor(x, y) { this.x=x; this.y=y; this.width=64; this.height=64; this.vx=0; this.vy=0; this.hp=600; this.maxHp=600; this.iFrames=0; this.isBoss=true; this.state='hover'; this.timer=0; this.name="Eye of Terror"; }
+            constructor(x, y) { this.type="EyeBoss"; this.x=x; this.y=y; this.width=64; this.height=64; this.vx=0; this.vy=0; this.hp=600; this.maxHp=600; this.iFrames=0; this.isBoss=true; this.state='hover'; this.timer=0; this.name="Eye of Terror"; }
             update() {
                 if(this.iFrames>0) this.iFrames--; this.timer++;
                 let pCx = player.x+player.width/2, pCy = player.y+player.height/2, dx = pCx - (this.x+this.width/2), dy = pCy - (this.y+this.height/2);
@@ -743,16 +789,10 @@
                 this.x += this.vx; this.y += this.vy;
                 if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(25); player.vx=(player.x>this.x)?8:-8; player.vy=-5; } triggerUI(); 
             }
-            draw(cx, cy) {
-                if(this.iFrames>0 && Math.floor(Date.now()/50)%2===0) return;
-                ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(Math.floor(this.x-cx+32), Math.floor(this.y-cy+32), 32, 0, Math.PI*2); ctx.fill(); 
-                ctx.fillStyle = this.hp < 300 ? '#f00' : '#00f'; ctx.beginPath(); ctx.arc(Math.floor(this.x-cx+32), Math.floor(this.y-cy+32), 12, 0, Math.PI*2); ctx.fill(); 
-                ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(Math.floor(this.x-cx+32), Math.floor(this.y-cy+32), 6, 0, Math.PI*2); ctx.fill(); 
-            }
         }
 
         class Skeletron {
-            constructor(x, y) { this.x=x; this.y=y; this.width=64; this.height=64; this.vx=0; this.vy=0; this.hp=1500; this.maxHp=1500; this.iFrames=0; this.isBoss=true; this.name="Skeletron"; this.timer=0; this.state='float'; }
+            constructor(x, y) { this.type="Skeletron"; this.x=x; this.y=y; this.width=64; this.height=64; this.vx=0; this.vy=0; this.hp=1500; this.maxHp=1500; this.iFrames=0; this.isBoss=true; this.name="Skeletron"; this.timer=0; this.state='float'; }
             update() {
                 if(this.iFrames>0) this.iFrames--; this.timer++;
                 let pCx = player.x+player.width/2, pCy = player.y+player.height/2, dx = pCx - (this.x+this.width/2), dy = pCy - (this.y+this.height/2);
@@ -766,16 +806,10 @@
                 this.x+=this.vx; this.y+=this.vy;
                 if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(35); player.vx=(player.x>this.x)?10:-10; player.vy=-5; } triggerUI();
             }
-            draw(cx, cy) {
-                if(this.iFrames>0 && Math.floor(Date.now()/50)%2===0) return;
-                ctx.fillStyle='#ddd'; ctx.fillRect(Math.floor(this.x-cx), Math.floor(this.y-cy), 64, 64);
-                ctx.fillStyle='#000'; ctx.fillRect(Math.floor(this.x-cx+12), Math.floor(this.y-cy+16), 12, 16); ctx.fillRect(Math.floor(this.x-cx+40), Math.floor(this.y-cy+16), 12, 16);
-                ctx.fillRect(Math.floor(this.x-cx+20), Math.floor(this.y-cy+45), 24, 8);
-            }
         }
 
         class KingSlime {
-            constructor(x, y) { this.x=x; this.y=y; this.width=96; this.height=64; this.vx=1; this.vy=0; this.jumpPower=12; this.grounded=false; this.jTimer=60; this.hp=800; this.maxHp=800; this.iFrames=0; this.isBoss=true; this.name="King Slime"; }
+            constructor(x, y) { this.type="KingSlime"; this.x=x; this.y=y; this.width=96; this.height=64; this.vx=1; this.vy=0; this.jumpPower=12; this.grounded=false; this.jTimer=60; this.hp=800; this.maxHp=800; this.iFrames=0; this.isBoss=true; this.name="King Slime"; }
             update() {
                 if(this.iFrames>0) this.iFrames--; this.jTimer--;
                 if(Math.abs(this.vx)>1.5) this.vx *= 0.9; else if(this.grounded && this.jTimer<=0) { this.vy = -this.jumpPower; this.grounded = false; this.jTimer=80; this.vx=(player.x > this.x ? 1 : -1)*4; if(Math.random()<0.5) enemies.push(new Slime(this.x+32, this.y)); }
@@ -785,12 +819,21 @@
                 if(this.y > WORLD_HEIGHT*TILE_SIZE) this.hp = 0; 
                 if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(30); player.vx=(player.x>this.x)?8:-8; player.vy=-5; } triggerUI();
             }
-            draw(cx, cy) { 
-                if(this.iFrames>0 && Math.floor(Date.now()/50)%2===0) return;
-                ctx.fillStyle = 'rgba(0,100,255,0.7)'; ctx.fillRect(Math.floor(this.x-cx), Math.floor(this.y-cy+16), this.width, this.height-16); ctx.fillRect(Math.floor(this.x-cx+16), Math.floor(this.y-cy), this.width-32, 16); 
-                ctx.fillStyle = '#ffd700'; ctx.fillRect(Math.floor(this.x-cx+32), Math.floor(this.y-cy-16), 32, 16); 
-            }
         }
+
+        // Mapping for rendering objects that came over the socket network
+        const ENEMY_DRAW = {
+            'Slime': (e, cx, cy) => { ctx.fillStyle = e.iFrames>0 ? '#fff' : 'rgba(0,255,100,0.8)'; ctx.fillRect(Math.floor(e.x-cx), Math.floor(e.y-cy+4), e.width, e.height-4); ctx.fillRect(Math.floor(e.x-cx+4), Math.floor(e.y-cy), e.width-8, 4); },
+            'Crab': (e, cx, cy) => { ctx.fillStyle = e.iFrames>0 ? '#fff' : '#c33'; ctx.fillRect(Math.floor(e.x-cx), Math.floor(e.y-cy+4), e.width, e.height-4); ctx.fillRect(Math.floor(e.x-cx-4), Math.floor(e.y-cy), 6, 8); ctx.fillRect(Math.floor(e.x-cx+e.width-2), Math.floor(e.y-cy), 6, 8); },
+            'Jellyfish': (e, cx, cy) => { ctx.fillStyle = e.iFrames>0 ? '#fff' : 'rgba(255,100,200,0.8)'; ctx.beginPath(); ctx.arc(Math.floor(e.x-cx+8), Math.floor(e.y-cy+8), 8, Math.PI, 0); ctx.fill(); ctx.fillRect(Math.floor(e.x-cx), Math.floor(e.y-cy+8), 16, 8); },
+            'Zombie': (e, cx, cy) => { ctx.fillStyle = e.iFrames>0 ? '#fff' : '#2e8b57'; ctx.fillRect(Math.floor(e.x-cx), Math.floor(e.y-cy), e.width, e.height); ctx.fillStyle='#000'; ctx.fillRect(Math.floor(e.x-cx+4), Math.floor(e.y-cy+4), 4, 4); ctx.fillRect(Math.floor(e.x-cx+12), Math.floor(e.y-cy+4), 4, 4); },
+            'Skeleton': (e, cx, cy) => { ctx.fillStyle = e.iFrames>0 ? '#fff' : '#ddd'; ctx.fillRect(Math.floor(e.x-cx), Math.floor(e.y-cy), e.width, e.height); ctx.fillStyle='#000'; ctx.fillRect(Math.floor(e.x-cx+4), Math.floor(e.y-cy+4), 4, 4); ctx.fillRect(Math.floor(e.x-cx+12), Math.floor(e.y-cy+4), 4, 4); },
+            'DemonEye': (e, cx, cy) => { ctx.fillStyle = e.iFrames>0 ? '#fff' : '#a00'; ctx.fillRect(Math.floor(e.x-cx), Math.floor(e.y-cy), e.width, e.height); ctx.fillStyle='#fff'; ctx.fillRect(Math.floor(e.x-cx+8), Math.floor(e.y-cy+8), 8, 8); ctx.fillStyle='#00f'; ctx.fillRect(Math.floor(e.x-cx+10+(e.vx>0?2:-2)), Math.floor(e.y-cy+10), 4, 4); },
+            'Eater': (e, cx, cy) => { ctx.fillStyle = e.iFrames>0 ? '#fff' : '#6a0dad'; ctx.fillRect(Math.floor(e.x-cx), Math.floor(e.y-cy), e.width, e.height); ctx.fillStyle='#f00'; ctx.fillRect(Math.floor(e.x-cx+(e.vx>0?16:4)), Math.floor(e.y-cy+8), 4, 4); },
+            'EyeBoss': (e, cx, cy) => { if(e.iFrames>0 && Math.floor(Date.now()/50)%2===0) return; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(Math.floor(e.x-cx+32), Math.floor(e.y-cy+32), 32, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = e.hp < 300 ? '#f00' : '#00f'; ctx.beginPath(); ctx.arc(Math.floor(e.x-cx+32), Math.floor(e.y-cy+32), 12, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(Math.floor(e.x-cx+32), Math.floor(e.y-cy+32), 6, 0, Math.PI*2); ctx.fill(); },
+            'Skeletron': (e, cx, cy) => { if(e.iFrames>0 && Math.floor(Date.now()/50)%2===0) return; ctx.fillStyle='#ddd'; ctx.fillRect(Math.floor(e.x-cx), Math.floor(e.y-cy), 64, 64); ctx.fillStyle='#000'; ctx.fillRect(Math.floor(e.x-cx+12), Math.floor(e.y-cy+16), 12, 16); ctx.fillRect(Math.floor(e.x-cx+40), Math.floor(e.y-cy+16), 12, 16); ctx.fillRect(Math.floor(e.x-cx+20), Math.floor(e.y-cy+45), 24, 8); },
+            'KingSlime': (e, cx, cy) => { if(e.iFrames>0 && Math.floor(Date.now()/50)%2===0) return; ctx.fillStyle = 'rgba(0,100,255,0.7)'; ctx.fillRect(Math.floor(e.x-cx), Math.floor(e.y-cy+16), e.width, e.height-16); ctx.fillRect(Math.floor(e.x-cx+16), Math.floor(e.y-cy), e.width-32, 16); ctx.fillStyle = '#ffd700'; ctx.fillRect(Math.floor(e.x-cx+32), Math.floor(e.y-cy-16), 32, 16); }
+        };
 
         let enemies = [];
         const camera = { x: 0, y: 0, update: function() { this.x = player.x-canvas.width/2+player.width/2; this.y = player.y-canvas.height/2+player.height/2; if(this.x<0) this.x=0; if(this.y<0) this.y=0; if(this.x>WORLD_WIDTH*TILE_SIZE-canvas.width) this.x=WORLD_WIDTH*TILE_SIZE-canvas.width; if(this.y>WORLD_HEIGHT*TILE_SIZE-canvas.height) this.y=WORLD_HEIGHT*TILE_SIZE-canvas.height; }};
@@ -810,7 +853,7 @@
             let actItem = inventory[activeSlot], isTool = ITEM_DATA[actItem?.id];
             if (isTool && (isTool.type === TOOL_TYPES.BOW || isTool.type === TOOL_TYPES.MAGIC)) return; 
 
-            if (mouse.rightDown && !mouse.prevRightDown && interactCooldown===0 && actItem) {
+            if (mouse.rightDown && !mouse.prevRightDown && interactCooldown===0 && actItem && isHost) {
                 if (actItem.id === ITEMS.SUS_EYE && gameTime >= 12000 && !enemies.some(e => e.isBoss)) {
                     actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new EyeBoss(player.x, player.y - 300)); return;
                 }
@@ -829,7 +872,9 @@
                 }
                 if(mouse.rightDown && !mouse.prevRightDown && (world[tX][tY] === 0 || world[tX][tY] === BLOCKS.WATER) && !isTool && actItem?.id>0 && actItem.count>0) {
                     if(!checkOverlap({x:tX*TILE_SIZE,y:tY*TILE_SIZE,width:32,height:32}, player) || actItem.id===8 || actItem.id===BLOCKS.PLATFORM) { 
-                        world[tX][tY]=actItem.id; actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); checkStations(); 
+                        world[tX][tY]=actItem.id; actItem.count--; if(actItem.count<=0) actItem.id=0; 
+                        if (socket.connected) socket.emit("blockUpdate", { worldId: currentRoom, x: tX, y: tY, id: world[tX][tY] });
+                        triggerUI(); checkStations(); 
                     }
                 }
                 
@@ -841,7 +886,10 @@
                         miningData.progress += (isTool ? isTool.dmg : 1);
                         if(miningData.progress > 15) { 
                             if(tBlock !== BLOCKS.LEAVES) { let mined = tBlock===2?1:tBlock===13?1:tBlock; giveItem(mined, 1); }
-                            spawnParticles(tX*TILE_SIZE, tY*TILE_SIZE, getBlockColor(tBlock), 8); world[tX][tY]=0; miningData.progress=0; checkStations();
+                            spawnParticles(tX*TILE_SIZE, tY*TILE_SIZE, getBlockColor(tBlock), 8); 
+                            world[tX][tY]=0; 
+                            if (socket.connected) socket.emit("blockUpdate", { worldId: currentRoom, x: tX, y: tY, id: 0 });
+                            miningData.progress=0; checkStations();
                         }
                     } else miningData.progress = 0;
                 } else if (!mouse.leftDown) miningData.progress = 0;
@@ -852,58 +900,71 @@
             if (gameState !== 'PLAYING') return; 
             try {
                 gameTime = (gameTime+TIME_SPEED)%24000; player.update();
-                let isDay = gameTime<12000;
-                let maxEnemies = isDay ? 3 : 15;
-                if(enemies.length<maxEnemies && Math.random()<0.02) { 
-                    let sX = camera.x+(Math.random()>0.5?canvas.width+100:-100); 
-                    if(sX>0&&sX<WORLD_WIDTH*TILE_SIZE) {
-                        let isCorrupt = (sX > WORLD_WIDTH*TILE_SIZE*0.7 && sX < WORLD_WIDTH*TILE_SIZE*0.75);
-                        let isOcean = (sX < 60*TILE_SIZE || sX > (WORLD_WIDTH-60)*TILE_SIZE);
-                        if (isOcean && Math.random() < 0.5) enemies.push(Math.random()<0.5 ? new Crab(sX, camera.y+50) : new Jellyfish(sX, camera.y+50));
-                        else if (isCorrupt) enemies.push(new Eater(sX, camera.y+100));
-                        else if (!isDay && Math.random()<0.4) enemies.push(new Zombie(sX, 0));
-                        else if (!isDay && Math.random()<0.3) enemies.push(new DemonEye(sX, camera.y+50));
-                        else if (player.y > 35*TILE_SIZE && Math.random()<0.5) enemies.push(new Skeleton(sX, 0));
-                        else enemies.push(new Slime(sX,0)); 
+                
+                // HOST-ONLY AI AND PHYSICS SYNC
+                if (isHost) {
+                    let isDay = gameTime<12000;
+                    let maxEnemies = isDay ? 3 : 15;
+                    if(enemies.length<maxEnemies && Math.random()<0.02) { 
+                        let sX = camera.x+(Math.random()>0.5?canvas.width+100:-100); 
+                        if(sX>0&&sX<WORLD_WIDTH*TILE_SIZE) {
+                            let isCorrupt = (sX > WORLD_WIDTH*TILE_SIZE*0.7 && sX < WORLD_WIDTH*TILE_SIZE*0.75);
+                            let isOcean = (sX < 60*TILE_SIZE || sX > (WORLD_WIDTH-60)*TILE_SIZE);
+                            if (isOcean && Math.random() < 0.5) enemies.push(Math.random()<0.5 ? new Crab(sX, camera.y+50) : new Jellyfish(sX, camera.y+50));
+                            else if (isCorrupt) enemies.push(new Eater(sX, camera.y+100));
+                            else if (!isDay && Math.random()<0.4) enemies.push(new Zombie(sX, 0));
+                            else if (!isDay && Math.random()<0.3) enemies.push(new DemonEye(sX, camera.y+50));
+                            else if (player.y > 35*TILE_SIZE && Math.random()<0.5) enemies.push(new Skeleton(sX, 0));
+                            else enemies.push(new Slime(sX,0)); 
+                        }
                     }
+                    
+                    enemies.forEach(e => { 
+                        e.update(); 
+                        if(e.hp<=0) { 
+                            if(e.isBoss) { 
+                                giveItem(ITEMS.COPPER_BAR, 20); giveItem(ITEMS.ARROW, 50); 
+                                if(e.name==="Skeletron") giveItem(ITEMS.BONE, 30);
+                                triggerUI(); 
+                            } else {
+                                if (e.constructor.name === 'Slime' && Math.random()>0.3) giveItem(ITEMS.GEL,1); 
+                                if (e.constructor.name === 'DemonEye' && Math.random()>0.3) giveItem(ITEMS.LENS,1);
+                                if (e.constructor.name === 'Skeleton' && Math.random()>0.5) giveItem(ITEMS.BONE,1);
+                            }
+                            spawnParticles(e.x, e.y, '#f00', 15);
+                        }
+                    }); 
+                    enemies = enemies.filter(e => e.hp>0);
+
+                    for (let i = projectiles.length - 1; i >= 0; i--) {
+                        let p = projectiles[i]; p.x += p.vx; p.y += p.vy; p.life--;
+                        if(p.type === 'arrow') p.vy += 0.2;
+                        else if(p.type === 'magic') { spawnParticles(p.x-16, p.y-16, '#f00', 1); if(p.life%5===0 && p.vy<10) p.vy+=0.5; }
+                        
+                        let tX = Math.floor(p.x/TILE_SIZE), tY = Math.floor(p.y/TILE_SIZE);
+                        let hitBlock = false;
+                        if (tX>=0 && tX<WORLD_WIDTH && tY>=0 && tY<WORLD_HEIGHT && world[tX][tY] !== 0 && world[tX][tY] !== 8 && world[tX][tY] !== 4 && world[tX][tY] !== 5 && world[tX][tY] !== 11 && world[tX][tY] !== 12 && world[tX][tY] !== 15) {
+                            if(p.type==='arrow') hitBlock = true; 
+                            else if(p.type==='magic') { p.vx *= -1; p.vy *= -1; p.x+=p.vx; p.y+=p.vy; }
+                        }
+                        if (hitBlock) { projectiles.splice(i, 1); continue; }
+                        
+                        let hit = false; for (let e of enemies) { if (p.x > e.x && p.x < e.x+e.width && p.y > e.y && p.y < e.y+e.height) { e.hp -= p.dmg; e.vx = (p.vx > 0 ? 1 : -1) * 4; e.vy = -2; e.iFrames = 10; spawnParticles(e.x, e.y, '#f00', 5); hit = true; break; } }
+                        if (hit || p.life <= 0) projectiles.splice(i, 1);
+                    }
+
+                    if (socket.connected && gameTime % 2 === 0) {
+                        socket.emit("syncEntities", { worldId: currentRoom, enemies: enemies, projectiles: projectiles });
+                    }
+                } else {
+                    // Clients just keep their enemies mirroring the host's synced arrays
+                    enemies = serverEnemies;
+                    projectiles = serverProjectiles;
                 }
                 
-                enemies.forEach(e => { 
-                    e.update(); 
-                    if(e.hp<=0) { 
-                        if(e.isBoss) { 
-                            giveItem(ITEMS.COPPER_BAR, 20); giveItem(ITEMS.ARROW, 50); 
-                            if(e.name==="Skeletron") giveItem(ITEMS.BONE, 30);
-                            triggerUI(); 
-                        } else {
-                            if (e.constructor.name === 'Slime' && Math.random()>0.3) giveItem(ITEMS.GEL,1); 
-                            if (e.constructor.name === 'DemonEye' && Math.random()>0.3) giveItem(ITEMS.LENS,1);
-                            if (e.constructor.name === 'Skeleton' && Math.random()>0.5) giveItem(ITEMS.BONE,1);
-                        }
-                        spawnParticles(e.x, e.y, '#f00', 15);
-                    }
-                }); 
-                enemies = enemies.filter(e => e.hp>0);
-                
+                // Particle physics remain strictly local
                 for (let i = particles.length - 1; i >= 0; i--) { let p = particles[i]; p.vy+=0.2; p.x+=p.vx; p.y+=p.vy; p.life--; if(p.life<=0) particles.splice(i,1); }
                 
-                for (let i = projectiles.length - 1; i >= 0; i--) {
-                    let p = projectiles[i]; p.x += p.vx; p.y += p.vy; p.life--;
-                    if(p.type === 'arrow') p.vy += 0.2;
-                    else if(p.type === 'magic') { spawnParticles(p.x-16, p.y-16, '#f00', 1); if(p.life%5===0 && p.vy<10) p.vy+=0.5; }
-                    
-                    let tX = Math.floor(p.x/TILE_SIZE), tY = Math.floor(p.y/TILE_SIZE);
-                    let hitBlock = false;
-                    if (tX>=0 && tX<WORLD_WIDTH && tY>=0 && tY<WORLD_HEIGHT && world[tX][tY] !== 0 && world[tX][tY] !== 8 && world[tX][tY] !== 4 && world[tX][tY] !== 5 && world[tX][tY] !== 11 && world[tX][tY] !== 12 && world[tX][tY] !== 15) {
-                        if(p.type==='arrow') hitBlock = true; 
-                        else if(p.type==='magic') { p.vx *= -1; p.vy *= -1; p.x+=p.vx; p.y+=p.vy; }
-                    }
-                    if (hitBlock) { projectiles.splice(i, 1); continue; }
-                    
-                    let hit = false; for (let e of enemies) { if (p.x > e.x && p.x < e.x+e.width && p.y > e.y && p.y < e.y+e.height) { e.hp -= p.dmg; e.vx = (p.vx > 0 ? 1 : -1) * 4; e.vy = -2; e.iFrames = 10; spawnParticles(e.x, e.y, '#f00', 5); hit = true; break; } }
-                    if (hit || p.life <= 0) projectiles.splice(i, 1);
-                }
-
                 camera.update(); handleMouseInteraction();
                 if(inventoryOpen && Math.random()<0.1) checkStations(); 
                 if(needsUIUpdate) { updateUI(); needsUIUpdate = false; }
@@ -916,6 +977,7 @@
             if (gameState === 'MENU') return;
             
             let isDay = gameTime<12000; ctx.fillStyle = isDay ? '#87CEEB' : '#050510'; ctx.fillRect(0,0,canvas.width,canvas.height); 
+            if (!world || world.length === 0) return; // Prevent render error while client is downloading
             
             let sC = Math.max(0, Math.min(WORLD_WIDTH - 1, Math.floor(camera.x/TILE_SIZE)));
             let eC = Math.max(sC + 1, Math.min(WORLD_WIDTH, sC + Math.ceil(canvas.width/TILE_SIZE) + 1));
@@ -968,19 +1030,26 @@
                 }
             }
             
+            // DRAW LOCAL PLAYER
             player.draw(camera.x, camera.y); 
             
-            // DRAW OTHER PLAYERS (in a red shirt so you can tell them apart!)
+            // DRAW OTHER PLAYERS IN REAL-TIME WITH THEIR EXACT ANIMATIONS AND ITEMS
             for (let id in otherPlayers) {
                 let p = otherPlayers[id];
                 if (p.x !== undefined && p.y !== undefined) {
-                    ctx.fillStyle = '#fce2c4'; ctx.fillRect(Math.floor(p.x-camera.x+4), Math.floor(p.y-camera.y), 12, 12);
-                    ctx.fillStyle = '#f00'; ctx.fillRect(Math.floor(p.x-camera.x+2), Math.floor(p.y-camera.y+12), 16, 16); 
-                    ctx.fillStyle = '#555'; ctx.fillRect(Math.floor(p.x-camera.x+4), Math.floor(p.y-camera.y+28), 4, 12); ctx.fillRect(Math.floor(p.x-camera.x+12), Math.floor(p.y-camera.y+28), 4, 12);
+                    drawPlayerSprite(p.x, p.y, p.equip, p.activeItem, p.dir, p.swingAnim, camera.x, camera.y);
+                    
+                    // Add a tiny nameplate dot so you know it's a teammate
+                    ctx.fillStyle = '#f00'; ctx.fillRect(Math.floor(p.x-camera.x+8), Math.floor(p.y-camera.y-10), 4, 4);
                 }
             }
 
-            enemies.forEach(e => e.draw(camera.x, camera.y));
+            // DRAW ENEMIES (Handles both Host objects and Client raw JSON)
+            enemies.forEach(e => {
+                if (e.draw) e.draw(camera.x, camera.y); // For Host
+                else if (ENEMY_DRAW[e.type]) ENEMY_DRAW[e.type](e, camera.x, camera.y); // For Client rendering server array
+            });
+
             projectiles.forEach(p => { ctx.fillStyle = p.type==='arrow'?'#fff':'#f00'; ctx.fillRect(Math.floor(p.x-camera.x-2), Math.floor(p.y-camera.y-2), 4, 4); });
             particles.forEach(p => { ctx.fillStyle = p.color; ctx.fillRect(Math.floor(p.x-camera.x), Math.floor(p.y-camera.y), Math.max(2, p.life/10), Math.max(2, p.life/10)); });
 
