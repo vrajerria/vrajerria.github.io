@@ -9,33 +9,38 @@ io.on("connection", (socket) => {
 
   socket.on("joinWorld", (worldId) => {
     socket.join(worldId);
+    if (!worldStates[worldId]) worldStates[worldId] = { players: {}, world: null, worldSurface: null, chestData: {}, host: socket.id };
     
-    // Create room if it doesn't exist
-    if (!worldStates[worldId]) {
-        worldStates[worldId] = { players: {}, world: null, worldSurface: null, host: socket.id };
-    }
-    
-    // Setup player data including equipment and animation states
     worldStates[worldId].players[socket.id] = { x: 0, y: 0, hp: 100, equip: [], activeItem: null, dir: 1, swingAnim: 0 };
 
-    // If the host has already uploaded the world, send it to this new player
     if (worldStates[worldId].world && worldStates[worldId].host !== socket.id) {
-        socket.emit("worldData", { world: worldStates[worldId].world, worldSurface: worldStates[worldId].worldSurface });
+        // Send the map AND the chests to late joiners
+        socket.emit("worldData", { world: worldStates[worldId].world, worldSurface: worldStates[worldId].worldSurface, chestData: worldStates[worldId].chestData });
     }
 
     io.to(worldId).emit("updatePlayers", worldStates[worldId].players);
   });
 
-  // The Host uploads the world map so late-joiners can download it
   socket.on("hostWorld", (data) => {
     if (worldStates[data.worldId]) {
         worldStates[data.worldId].world = data.world;
         worldStates[data.worldId].worldSurface = data.worldSurface;
-        socket.to(data.worldId).emit("worldData", { world: data.world, worldSurface: data.worldSurface });
+        worldStates[data.worldId].chestData = data.chestData || {};
+        socket.to(data.worldId).emit("worldData", { world: data.world, worldSurface: data.worldSurface, chestData: worldStates[data.worldId].chestData });
     }
   });
 
-  // Sync block breaking and placing
+  // NEW: Sync individual chest slots when a player moves an item
+  socket.on("chestUpdate", (data) => {
+    if (worldStates[data.worldId]) {
+        if (!worldStates[data.worldId].chestData) worldStates[data.worldId].chestData = {};
+        if (!worldStates[data.worldId].chestData[data.chestKey]) worldStates[data.worldId].chestData[data.chestKey] = [];
+        
+        worldStates[data.worldId].chestData[data.chestKey][data.index] = data.slotData;
+        socket.to(data.worldId).emit("chestUpdated", data);
+    }
+  });
+
   socket.on("blockUpdate", (data) => {
     if (worldStates[data.worldId] && worldStates[data.worldId].world) {
         worldStates[data.worldId].world[data.x][data.y] = data.id;
@@ -43,22 +48,19 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Sync full player actions (armor, tools, swinging)
   socket.on("playerUpdate", (data) => {
     const { worldId, x, y, equip, activeItem, dir, swingAnim } = data;
     if (worldStates[worldId] && worldStates[worldId].players[socket.id]) {
       worldStates[worldId].players[socket.id] = { x, y, equip, activeItem, dir, swingAnim };
-      socket.to(worldId).emit("playerUpdated", { id: socket.id, x, y, equip, activeItem, dir, swingAnim });
+      socket.to(worldId).emit("playerUpdated", { id: socket.id, x, y, equip, activeItem, dir, swingAnim, hitEvents: data.hitEvents });
     }
   });
 
-  // Host constantly syncs enemies and boss states
   socket.on("syncEntities", (data) => {
       socket.to(data.worldId).emit("entitiesSynced", data);
   });
 
-  // Client shoots a bow/magic, tell the host to spawn it
-  socket.on("clientProjectile", (data) => {
+  socket.on("spawnProjectile", (data) => {
       socket.to(data.worldId).emit("spawnProjectile", data);
   });
 
@@ -68,11 +70,10 @@ io.on("connection", (socket) => {
         delete worldStates[worldId].players[socket.id];
         io.to(worldId).emit("updatePlayers", worldStates[worldId].players);
         
-        // If the host leaves, make someone else the host
         if (worldStates[worldId].host === socket.id) {
             let keys = Object.keys(worldStates[worldId].players);
             if (keys.length > 0) worldStates[worldId].host = keys[0];
-            else delete worldStates[worldId]; // Wipe world if empty
+            else delete worldStates[worldId]; 
         }
       }
     }
