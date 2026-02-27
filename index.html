@@ -128,6 +128,10 @@
         const db = firebase.firestore();
         const analytics = firebase.analytics();
 
+        // --- CUSTOM PLAYER SPRITE ---
+        const playerImg = new Image();
+        playerImg.src = 'vraj.png';
+
         // --- SOCKET.IO INIT ---
         const socket = io("https://vrajerria-github-io.onrender.com", { autoConnect: false });
         let otherPlayers = {};
@@ -168,7 +172,6 @@
         socket.on("worldData", (data) => {
             world = data.world;
             worldSurface = data.worldSurface;
-            chestData = data.chestData || {};
             $('loading-screen').style.display = 'none';
             startGameLoop();
         });
@@ -180,17 +183,19 @@
             }
         });
 
-        // LIVE CHEST SYNC
-        socket.on("chestUpdated", (data) => {
-            if (!chestData[data.chestKey]) chestData[data.chestKey] = Array.from({length: CHEST_SIZE}, () => ({id: 0, count: 0}));
-            chestData[data.chestKey][data.index] = data.slotData;
-            if (activeChestKey === data.chestKey) triggerUI(); 
-        });
-
         socket.on("entitiesSynced", (data) => {
+            if (data.isChestUpdate) {
+                chestData = data.chestData;
+                if (inventoryOpen && activeChestKey) triggerUI();
+                return;
+            }
             if (!isHost) {
                 serverEnemies = data.enemies;
                 serverProjectiles = data.projectiles;
+                if (data.chestData) {
+                    chestData = data.chestData;
+                    if (inventoryOpen && activeChestKey) triggerUI();
+                }
             }
         });
 
@@ -382,9 +387,10 @@
                 $('loading-screen').style.display = 'flex';
                 $('loading-progress').style.display = 'none';
                 $('loading-text').innerText = "Downloading World Data...";
+                
                 resetPlayerState();
                 
-                // LOAD CLIENT SAVE IF IT EXISTS
+                // LOAD CLIENT SPECIFIC SAVE IF IT EXISTS
                 let s = localStorage.getItem('clientSave_' + room);
                 if (s) {
                     let d = JSON.parse(s);
@@ -411,10 +417,9 @@
         }
 
         function saveGame() { 
-            // Save Clients independently of Hosts
             if (multiplayerMode === 'client' && currentRoom) {
                 localStorage.setItem('clientSave_' + currentRoom, JSON.stringify({ inventory, equipment, hp: player.hp }));
-                alert("Multiplayer Character Saved!");
+                alert("Client Game Saved to " + currentRoom + "!");
             } else if (currentSlotId) {
                 localStorage.setItem('sandboxSave_' + currentSlotId, JSON.stringify({ world, worldSurface, inventory, equipment, chestData, time: gameTime, px: player.x, py: player.y, hp: player.hp })); 
                 alert("Game Saved to " + currentSlotId + "!"); 
@@ -445,7 +450,7 @@
                 if (!socket.connected) socket.connect();
                 if (isHost) {
                     socket.emit("joinWorld", currentRoom);
-                    socket.emit("hostWorld", { worldId: currentRoom, world: world, worldSurface: worldSurface, chestData: chestData });
+                    socket.emit("hostWorld", { worldId: currentRoom, world: world, worldSurface: worldSurface });
                 }
             } else {
                 if (socket.connected) socket.disconnect();
@@ -465,12 +470,12 @@
                 } else { let temp = {id: tSlot.id, count: tSlot.count}; tSlot.id = cursorItem.id; tSlot.count = cursorItem.count; cursorItem = temp; }
             } else if (tSlot.id !== 0) { cursorItem = {id: tSlot.id, count: tSlot.count}; tSlot.id = 0; tSlot.count = 0; }
             
-            // EMIT CHEST UPDATE TO NETWORK
-            if (type === 'chest' && socket.connected && currentRoom) {
-                socket.emit('chestUpdate', { worldId: currentRoom, chestKey: activeChestKey, index: index, slotData: tSlot });
-            }
-            
             recalcStats(); triggerUI(); updateCursorFollower();
+            
+            // Sync Multiplayer Chest Changes
+            if (socket.connected && type === 'chest') {
+                socket.emit("syncEntities", { worldId: currentRoom, isChestUpdate: true, chestData: chestData });
+            }
         }
 
         function giveItem(itemId, amount = 1) {
@@ -490,6 +495,7 @@
             player.defense = equipment.reduce((def, eq) => def + (ITEM_DATA[eq.id]?.def || 0), 0); 
             $('stats-display').innerText = `Defense: ${player.defense}`; 
             
+            // NERFED WALK SPEED
             player.baseSpeed = 2.5; player.maxJumps = 1;
             if(equipment[3] && equipment[3].id === ITEMS.HERMES_BOOTS) player.baseSpeed = 4;
             if(equipment[3] && equipment[3].id === ITEMS.CLOUD_BOTTLE) player.maxJumps = 2;
@@ -547,9 +553,19 @@
 
         canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; if(tooltip.style.display === 'block') { tooltip.style.left = e.pageX + 15 + 'px'; tooltip.style.top = e.pageY + 15 + 'px'; } if(cursorItem.id !== 0) updateCursorFollower(); });
         
-        // ALLOW CLICKING TO SWING WHILE INVENTORY OPEN
-        canvas.addEventListener('mousedown', e => { if (gameState === 'PLAYING') { if (e.button === 0) mouse.leftDown = true; if (e.button === 2) mouse.rightDown = true; }});
-        canvas.addEventListener('mouseup', e => { if (e.button === 0) mouse.leftDown = false; if (e.button === 2) mouse.rightDown = false; });
+        // MOUSE DOWN ONLY TRIGGERS ON CANVAS (Prevents swinging/mining when clicking UI)
+        canvas.addEventListener('mousedown', e => { 
+            if (gameState === 'PLAYING') { 
+                if (e.button === 0) mouse.leftDown = true; 
+                if (e.button === 2) mouse.rightDown = true; 
+            }
+        });
+        
+        // MOUSE UP TRIGGERS GLOBALLY (Prevents mouse from getting stuck if lifted over UI)
+        window.addEventListener('mouseup', e => { 
+            if (e.button === 0) mouse.leftDown = false; 
+            if (e.button === 2) mouse.rightDown = false; 
+        });
         
         const keys = {}; let prevKeys = {}; 
         window.addEventListener('keydown', e => {
@@ -636,39 +652,52 @@
                 let p = otherPlayers[id];
                 if (p.x !== undefined) {
                     let dist = Math.hypot(p.x - ex, p.y - ey);
-                    if (dist < minDist) { minDist = dist; closest = { x: p.x, y: p.y, width: 20, height: 40 }; }
+                    if (dist < minDist) { 
+                        minDist = dist; 
+                        closest = { x: p.x, y: p.y, width: 20, height: 40 }; 
+                    }
                 }
             }
             return closest;
         }
 
-        // --- NEW REALISTIC TOOL SWING DRAW FUNCTION ---
+        // --- CENTRALIZED PLAYER DRAW FUNCTION (NOW SUPPORTS vraj.png AND ANCHORED SWING) ---
         function drawPlayerSprite(px, py, pEquip, pItem, pDir, pSwing, cx, cy) {
             if (!pEquip) pEquip = [];
-            ctx.fillStyle = '#fce2c4'; ctx.fillRect(Math.floor(px-cx+4), Math.floor(py-cy), 12, 12); 
-            ctx.fillStyle = pEquip[1] && pEquip[1].id === ITEMS.CHEST_ARMOR ? '#cda434' : '#3a4b7c'; ctx.fillRect(Math.floor(px-cx+2), Math.floor(py-cy+12), 16, 16); 
-            ctx.fillStyle = pEquip[2] && pEquip[2].id === ITEMS.LEGS ? '#cda434' : '#555'; ctx.fillRect(Math.floor(px-cx+4), Math.floor(py-cy+28), 4, 12); ctx.fillRect(Math.floor(px-cx+12), Math.floor(py-cy+28), 4, 12); 
-            if(pEquip[0] && pEquip[0].id === ITEMS.HELMET) { ctx.fillStyle = '#cda434'; ctx.fillRect(Math.floor(px-cx+2), Math.floor(py-cy-2), 16, 10); }
+            
+            // Draw Custom Sprite if loaded, otherwise fallback to blocky armor
+            if (playerImg.complete && playerImg.naturalWidth > 0) {
+                ctx.save();
+                ctx.translate(Math.floor(px - cx + 10), Math.floor(py - cy + 20)); // Center of player
+                if (pDir === -1) ctx.scale(-1, 1);
+                ctx.drawImage(playerImg, -10, -20, 20, 40);
+                ctx.restore();
+            } else {
+                ctx.fillStyle = '#fce2c4'; ctx.fillRect(Math.floor(px-cx+4), Math.floor(py-cy), 12, 12); 
+                ctx.fillStyle = pEquip[1] && pEquip[1].id === ITEMS.CHEST_ARMOR ? '#cda434' : '#3a4b7c'; ctx.fillRect(Math.floor(px-cx+2), Math.floor(py-cy+12), 16, 16); 
+                ctx.fillStyle = pEquip[2] && pEquip[2].id === ITEMS.LEGS ? '#cda434' : '#555'; ctx.fillRect(Math.floor(px-cx+4), Math.floor(py-cy+28), 4, 12); ctx.fillRect(Math.floor(px-cx+12), Math.floor(py-cy+28), 4, 12); 
+                if(pEquip[0] && pEquip[0].id === ITEMS.HELMET) { ctx.fillStyle = '#cda434'; ctx.fillRect(Math.floor(px-cx+2), Math.floor(py-cy-2), 16, 10); }
+            }
 
+            // Anchored Tool Swing Math
             if (pSwing > 0 && pItem && pItem.id !== 0) {
                 let isTool = ITEM_DATA[pItem.id];
                 if(isTool && isTool.type !== TOOL_TYPES.BOW && isTool.type !== TOOL_TYPES.MAGIC && SPRITES[pItem.id]) { 
-                    ctx.save(); 
-                    // Pivot hinge at player's hand (center X, hip Y)
-                    ctx.translate(Math.floor(px + 10 - cx), Math.floor(py + 20 - cy));
-                    let progress = 1 - (pSwing / isTool.use); 
+                    ctx.save();
+                    // Anchor at the player's hand position
+                    let hX = pDir === 1 ? px - cx + 16 : px - cx + 4;
+                    let hY = py - cy + 20;
+                    ctx.translate(hX, hY);
+                    
+                    let progress = 1 - (pSwing / isTool.use); // 0.0 to 1.0
                     
                     if (pDir === 1) {
-                        let rot = (progress * Math.PI) - (Math.PI / 3);
-                        ctx.rotate(rot);
-                        // Shift image so the handle matches the pivot origin
-                        ctx.drawImage(SPRITES[pItem.id], -8, -24);
+                        ctx.rotate(-Math.PI/4 + progress * Math.PI); // Swings from -45 deg to 135 deg
+                        ctx.drawImage(SPRITES[pItem.id], -16, -28);  // Adjust so handle is exactly at transform origin (0,0)
                     } else {
                         ctx.scale(-1, 1);
-                        let rot = (progress * Math.PI) - (Math.PI / 3);
-                        ctx.rotate(rot);
-                        // Shift image so the handle matches the pivot origin
-                        ctx.drawImage(SPRITES[pItem.id], -8, -24);
+                        ctx.rotate(-Math.PI/4 + progress * Math.PI);
+                        ctx.drawImage(SPRITES[pItem.id], -16, -28);
                     }
                     ctx.restore();
                 }
@@ -690,7 +719,7 @@
                 let cGrav = inWater ? GRAVITY/3 : GRAVITY, cTerm = inWater ? TERMINAL_VELOCITY/3 : TERMINAL_VELOCITY;
                 let cSpeed = inWater ? this.baseSpeed/2 : this.baseSpeed, cJump = inWater ? this.jumpPower/1.5 : this.jumpPower;
 
-                // INVENTORY NO LONGER BLOCKS MOVEMENT
+                // MOVEMENT HAPPENS EVEN IF INVENTORY IS OPEN
                 if ((keys['KeyA']||keys['ArrowLeft']) && !keys['KeyD']) { this.vx = -cSpeed; this.dir = -1; if(this.grounded && cSpeed>4 && Math.random()<0.3) spawnParticles(this.x, this.y+20, '#fff', 1); }
                 else if ((keys['KeyD']||keys['ArrowRight']) && !keys['KeyA']) { this.vx = cSpeed; this.dir = 1; if(this.grounded && cSpeed>4 && Math.random()<0.3) spawnParticles(this.x, this.y+20, '#fff', 1); }
                 else this.vx = 0;
@@ -701,7 +730,6 @@
                     if(this.jumpsDone > 0 && !inWater) spawnParticles(this.x, this.y+20, '#fff', 8); 
                     if(!inWater) this.jumpsDone++; 
                 }
-                
                 // NERFED JUMP SUSTAIN (Limits height precisely)
                 if (jKey && this.isJumping) { this.jumpFrames++; if(this.jumpFrames < 8) this.vy -= (inWater ? 0.2 : 0.5); else this.isJumping = false; }
                 if (!jKey) { this.isJumping = false; if(this.vy < -3) this.vy = -3; }
@@ -747,6 +775,7 @@
                     }
                 }
 
+                // If Client touches an enemy locally, take damage independently
                 if (!isHost && serverEnemies) {
                     serverEnemies.forEach(e => {
                         if (e.hp > 0 && checkOverlap(this, e)) {
@@ -757,6 +786,7 @@
                     });
                 }
 
+                // MULTIPLAYER SYNC
                 if ((multiplayerMode === 'host' || multiplayerMode === 'client') && socket.connected && currentRoom) {
                     if (this.x !== this.lastX || this.y !== this.lastY || this.swingAnim > 0 || this.dir !== this.lastDir || hitEvents.length > 0) {
                         socket.emit("playerUpdate", { 
@@ -781,7 +811,7 @@
             }
         };
 
-        // --- ENEMY CLASSES ---
+        // --- ENEMY CLASSES WITH SYNCED IDs AND TARGETING ---
         class Slime {
             constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="Slime"; this.x=x; this.y=y; this.width=24; this.height=16; this.vx=1; this.vy=0; this.jumpPower=6; this.grounded=false; this.jTimer=Math.floor(Math.random()*60); this.hp=30; this.maxHp=30; this.iFrames=0; this.isBoss=false; this.dmg=10; }
             update() {
@@ -867,6 +897,7 @@
                 if(dist < 600) { this.vx += (dx/dist)*0.15; this.vy += (dy/dist)*0.15; } 
                 this.vx *= 0.96; this.vy *= 0.96;
                 
+                // DEMON EYES GET STUCK ON WALLS NOW
                 let pX = this.x; this.x+=this.vx; entityCollide(this, 'x'); if(this.x === pX) this.vx *= -1;
                 let pY = this.y; this.y+=this.vy; entityCollide(this, 'y'); if(this.y === pY) this.vy *= -1;
                 
@@ -950,6 +981,16 @@
             'KingSlime': (e, cx, cy) => { if(e.iFrames>0 && Math.floor(Date.now()/50)%2===0) return; ctx.fillStyle = 'rgba(0,100,255,0.7)'; ctx.fillRect(Math.floor(e.x-cx), Math.floor(e.y-cy+16), e.width, e.height-16); ctx.fillRect(Math.floor(e.x-cx+16), Math.floor(e.y-cy), e.width-32, 16); ctx.fillStyle = '#ffd700'; ctx.fillRect(Math.floor(e.x-cx+32), Math.floor(e.y-cy-16), 32, 16); }
         };
 
+        let enemies = [];
+        const camera = { x: 0, y: 0, update: function() { this.x = player.x-canvas.width/2+player.width/2; this.y = player.y-canvas.height/2+player.height/2; if(this.x<0) this.x=0; if(this.y<0) this.y=0; if(this.x>WORLD_WIDTH*TILE_SIZE-canvas.width) this.x=WORLD_WIDTH*TILE_SIZE-canvas.width; if(this.y>WORLD_HEIGHT*TILE_SIZE-canvas.height) this.y=WORLD_HEIGHT*TILE_SIZE-canvas.height; }};
+
+        function checkStations() {
+            let o = nearWorkbench; nearWorkbench = false; let px = Math.floor(player.x/TILE_SIZE), py = Math.floor(player.y/TILE_SIZE);
+            for(let x=px-3; x<=px+3; x++) for(let y=py-3; y<=py+3; y++) if(x>=0&&x<WORLD_WIDTH&&y>=0&&y<WORLD_HEIGHT && world[x][y]===6) nearWorkbench = true;
+            if (o !== nearWorkbench) triggerUI();
+        }
+
+        let interactCooldown = 0;
         function handleMouseInteraction() {
             let tX = Math.floor((mouse.x+camera.x)/TILE_SIZE), tY = Math.floor((mouse.y+camera.y)/TILE_SIZE);
             if(tX<0||tX>=WORLD_WIDTH||tY<0||tY>=WORLD_HEIGHT) return;
@@ -992,7 +1033,10 @@
                             if(tBlock !== BLOCKS.LEAVES) { let mined = tBlock===2?1:tBlock===13?1:tBlock; giveItem(mined, 1); }
                             spawnParticles(tX*TILE_SIZE, tY*TILE_SIZE, getBlockColor(tBlock), 8); 
                             world[tX][tY]=0; 
-                            if (socket.connected) socket.emit("blockUpdate", { worldId: currentRoom, x: tX, y: tY, id: 0 });
+                            if (socket.connected) {
+                                socket.emit("blockUpdate", { worldId: currentRoom, x: tX, y: tY, id: 0 });
+                                socket.emit("syncEntities", { worldId: currentRoom, isChestUpdate: true, chestData: chestData });
+                            }
                             miningData.progress=0; checkStations();
                         }
                     } else miningData.progress = 0;
@@ -1005,6 +1049,7 @@
             try {
                 gameTime = (gameTime+TIME_SPEED)%24000; player.update();
                 
+                // HOST-ONLY AI AND PHYSICS SYNC
                 if (isHost) {
                     let isDay = gameTime<12000;
                     let maxEnemies = isDay ? 3 : 15;
@@ -1057,13 +1102,15 @@
                     }
 
                     if (socket.connected && gameTime % 2 === 0) {
-                        socket.emit("syncEntities", { worldId: currentRoom, enemies: enemies, projectiles: projectiles });
+                        socket.emit("syncEntities", { worldId: currentRoom, enemies: enemies, projectiles: projectiles, chestData: chestData });
                     }
                 } else {
+                    // Clients just keep their enemies mirroring the host's synced arrays
                     enemies = serverEnemies;
                     projectiles = serverProjectiles;
                 }
                 
+                // Particle physics remain strictly local
                 for (let i = particles.length - 1; i >= 0; i--) { let p = particles[i]; p.vy+=0.2; p.x+=p.vx; p.y+=p.vy; p.life--; if(p.life<=0) particles.splice(i,1); }
                 
                 camera.update(); handleMouseInteraction();
@@ -1078,7 +1125,7 @@
             if (gameState === 'MENU') return;
             
             let isDay = gameTime<12000; ctx.fillStyle = isDay ? '#87CEEB' : '#050510'; ctx.fillRect(0,0,canvas.width,canvas.height); 
-            if (!world || world.length === 0) return; 
+            if (!world || world.length === 0) return; // Prevent render error while client is downloading
             
             let sC = Math.max(0, Math.min(WORLD_WIDTH - 1, Math.floor(camera.x/TILE_SIZE)));
             let eC = Math.max(sC + 1, Math.min(WORLD_WIDTH, sC + Math.ceil(canvas.width/TILE_SIZE) + 1));
@@ -1131,19 +1178,24 @@
                 }
             }
             
+            // DRAW LOCAL PLAYER
             player.draw(camera.x, camera.y); 
             
+            // DRAW OTHER PLAYERS IN REAL-TIME WITH THEIR EXACT ANIMATIONS AND ITEMS
             for (let id in otherPlayers) {
                 let p = otherPlayers[id];
                 if (p.x !== undefined && p.y !== undefined) {
                     drawPlayerSprite(p.x, p.y, p.equip, p.activeItem, p.dir, p.swingAnim, camera.x, camera.y);
+                    
+                    // Add a tiny nameplate dot so you know it's a teammate
                     ctx.fillStyle = '#f00'; ctx.fillRect(Math.floor(p.x-camera.x+8), Math.floor(p.y-camera.y-10), 4, 4);
                 }
             }
 
+            // DRAW ENEMIES (Handles both Host objects and Client raw JSON)
             enemies.forEach(e => {
-                if (e.draw) e.draw(camera.x, camera.y); 
-                else if (ENEMY_DRAW[e.type]) ENEMY_DRAW[e.type](e, camera.x, camera.y); 
+                if (e.draw) e.draw(camera.x, camera.y); // For Host
+                else if (ENEMY_DRAW[e.type]) ENEMY_DRAW[e.type](e, camera.x, camera.y); // For Client rendering server array
             });
 
             projectiles.forEach(p => { ctx.fillStyle = p.type==='arrow'?'#fff':'#f00'; ctx.fillRect(Math.floor(p.x-camera.x-2), Math.floor(p.y-camera.y-2), 4, 4); });
