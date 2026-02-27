@@ -150,6 +150,20 @@
             otherPlayers[data.id].activeItem = data.activeItem;
             otherPlayers[data.id].dir = data.dir;
             otherPlayers[data.id].swingAnim = data.swingAnim;
+
+            // Host receives hit events from clients and processes damage
+            if (isHost && data.hitEvents && data.hitEvents.length > 0) {
+                data.hitEvents.forEach(hit => {
+                    let e = enemies.find(en => en.id === hit.id);
+                    if (e && e.hp > 0) {
+                        e.hp -= hit.dmg;
+                        e.vx = hit.dir * 6;
+                        e.vy = -4;
+                        e.iFrames = 10;
+                        spawnParticles(e.x, e.y, '#f00', 5);
+                    }
+                });
+            }
         });
 
         socket.on("worldData", (data) => {
@@ -447,8 +461,10 @@
         function recalcStats() { 
             player.defense = equipment.reduce((def, eq) => def + (ITEM_DATA[eq.id]?.def || 0), 0); 
             $('stats-display').innerText = `Defense: ${player.defense}`; 
-            player.baseSpeed = 5; player.maxJumps = 1;
-            if(equipment[3] && equipment[3].id === ITEMS.HERMES_BOOTS) player.baseSpeed = 8;
+            
+            // NERFED WALK SPEED
+            player.baseSpeed = 2.5; player.maxJumps = 1;
+            if(equipment[3] && equipment[3].id === ITEMS.HERMES_BOOTS) player.baseSpeed = 4;
             if(equipment[3] && equipment[3].id === ITEMS.CLOUD_BOTTLE) player.maxJumps = 2;
         }
 
@@ -472,8 +488,8 @@
             });
             let fullHearts = Math.floor(player.hp / 20); let hHtml = ''; for(let i=0; i<5; i++) hHtml += `<div class="heart ${i < fullHearts ? '' : 'empty'}"></div>`; $('health-hearts').innerHTML = hHtml;
             $('health-text').innerText = `Life: ${Math.floor(player.hp)}/100`;
-            let boss = enemies.find(e => e.isBoss);
-            if(boss) { $('boss-bar-container').style.display = 'block'; $('boss-bar').style.width = Math.max(0, (boss.hp / boss.maxHp) * 100) + '%'; $('boss-text').innerText = boss.name; } else $('boss-bar-container').style.display = 'none';
+            let boss = isHost ? enemies.find(e => e.isBoss) : serverEnemies.find(e => e.isBoss);
+            if(boss) { $('boss-bar-container').style.display = 'block'; $('boss-bar').style.width = Math.max(0, (boss.hp / boss.maxHp) * 100) + '%'; $('boss-text').innerText = boss.name || "Boss"; } else $('boss-bar-container').style.display = 'none';
         }
 
         function createSlotEl(type, index, isActive) {
@@ -584,6 +600,23 @@
         }
         function checkOverlap(r1, r2) { return !(r2.x > r1.x + r1.width || r2.x + r2.width < r1.x || r2.y > r1.y + r1.height || r2.y + r2.height < r1.y); }
 
+        function getClosestTarget(ex, ey) {
+            // Provide exact bounding box so calculation works for host and clients
+            let closest = { x: player.x, y: player.y, width: 20, height: 40 };
+            let minDist = Math.hypot(player.x - ex, player.y - ey);
+            for (let id in otherPlayers) {
+                let p = otherPlayers[id];
+                if (p.x !== undefined) {
+                    let dist = Math.hypot(p.x - ex, p.y - ey);
+                    if (dist < minDist) { 
+                        minDist = dist; 
+                        closest = { x: p.x, y: p.y, width: 20, height: 40 }; 
+                    }
+                }
+            }
+            return closest;
+        }
+
         // --- CENTRALIZED PLAYER DRAW FUNCTION ---
         function drawPlayerSprite(px, py, pEquip, pItem, pDir, pSwing, cx, cy) {
             if (!pEquip) pEquip = [];
@@ -605,7 +638,7 @@
         let projectiles = []; let miningData = { x: -1, y: -1, progress: 0 };
 
         const player = {
-            x: TILE_SIZE*(WORLD_WIDTH/2), y: 0, width: 20, height: 40, vx: 0, vy: 0, baseSpeed: 5, jumpPower: 6, grounded: false, dir: 1, 
+            x: TILE_SIZE*(WORLD_WIDTH/2), y: 0, width: 20, height: 40, vx: 0, vy: 0, baseSpeed: 2.5, jumpPower: 5, grounded: false, dir: 1, 
             isJumping: false, jumpFrames: 0, maxJumps: 1, jumpsDone: 0, hp: 100, maxHp: 100, iFrames: 0, attkTimer: 0, swingAnim: 0, defense: 0, 
             lastX: 0, lastY: 0, lastDir: 1,
             update: function() {
@@ -618,8 +651,8 @@
                 let cSpeed = inWater ? this.baseSpeed/2 : this.baseSpeed, cJump = inWater ? this.jumpPower/1.5 : this.jumpPower;
 
                 if (!inventoryOpen) {
-                    if ((keys['KeyA']||keys['ArrowLeft']) && !keys['KeyD']) { this.vx = -cSpeed; this.dir = -1; if(this.grounded && cSpeed>5 && Math.random()<0.3) spawnParticles(this.x, this.y+20, '#fff', 1); }
-                    else if ((keys['KeyD']||keys['ArrowRight']) && !keys['KeyA']) { this.vx = cSpeed; this.dir = 1; if(this.grounded && cSpeed>5 && Math.random()<0.3) spawnParticles(this.x, this.y+20, '#fff', 1); }
+                    if ((keys['KeyA']||keys['ArrowLeft']) && !keys['KeyD']) { this.vx = -cSpeed; this.dir = -1; if(this.grounded && cSpeed>4 && Math.random()<0.3) spawnParticles(this.x, this.y+20, '#fff', 1); }
+                    else if ((keys['KeyD']||keys['ArrowRight']) && !keys['KeyA']) { this.vx = cSpeed; this.dir = 1; if(this.grounded && cSpeed>4 && Math.random()<0.3) spawnParticles(this.x, this.y+20, '#fff', 1); }
                     else this.vx = 0;
                     
                     if (this.grounded || inWater) this.jumpsDone = 0;
@@ -628,7 +661,8 @@
                         if(this.jumpsDone > 0 && !inWater) spawnParticles(this.x, this.y+20, '#fff', 8); 
                         if(!inWater) this.jumpsDone++; 
                     }
-                    if (jKey && this.isJumping) { this.jumpFrames++; if(this.jumpFrames < 12) this.vy -= (inWater ? 0.2 : 0.5); else this.isJumping = false; }
+                    // NERFED JUMP SUSTAIN (Limits height precisely)
+                    if (jKey && this.isJumping) { this.jumpFrames++; if(this.jumpFrames < 8) this.vy -= (inWater ? 0.2 : 0.5); else this.isJumping = false; }
                     if (!jKey) { this.isJumping = false; if(this.vy < -3) this.vy = -3; }
                 } else this.vx = 0;
 
@@ -640,6 +674,8 @@
 
                 let actItem = inventory[activeSlot], isTool = ITEM_DATA[actItem?.id];
                 this.justSwung = false;
+                let hitEvents = [];
+
                 if (mouse.leftDown && isTool && this.attkTimer <= 0 && !inventoryOpen) {
                     this.attkTimer = isTool.use; this.swingAnim = isTool.use; this.justSwung = true;
                     if (isTool.type === TOOL_TYPES.BOW) {
@@ -654,16 +690,43 @@
                         let pData = { type: 'magic', x: pCx, y: pCy, vx: Math.cos(angle)*8, vy: Math.sin(angle)*8, life: 150, dmg: isTool.dmg };
                         if (isHost) projectiles.push(pData); else if (socket.connected) socket.emit("spawnProjectile", { worldId: currentRoom, ...pData });
                         triggerUI();
-                    } else if (isTool.type !== TOOL_TYPES.CONSUME && isTool.type !== TOOL_TYPES.PICKAXE && isTool.type !== TOOL_TYPES.AXE && isHost) {
+                    } else if (isTool.type !== TOOL_TYPES.CONSUME && isTool.type !== TOOL_TYPES.PICKAXE && isTool.type !== TOOL_TYPES.AXE) {
                         let box = { x: this.dir===1 ? this.x+this.width : this.x-30, y: this.y, width: 30, height: this.height };
-                        enemies.forEach(e => { if (checkOverlap(box, e)) { e.hp -= isTool.dmg; e.vx = this.dir*6; e.vy = -4; e.iFrames = 10; spawnParticles(e.x, e.y, '#f00', 5); }});
+                        
+                        let targetEnemies = isHost ? enemies : serverEnemies;
+                        targetEnemies.forEach(e => { 
+                            if (checkOverlap(box, e) && e.hp > 0) { 
+                                if (isHost) {
+                                    e.hp -= isTool.dmg; e.vx = this.dir*6; e.vy = -4; e.iFrames = 10; spawnParticles(e.x, e.y, '#f00', 5); 
+                                } else {
+                                    hitEvents.push({ id: e.id, dmg: isTool.dmg, dir: this.dir });
+                                    e.iFrames = 10; spawnParticles(e.x, e.y, '#f00', 5);
+                                }
+                            }
+                        });
                     }
+                }
+
+                // If Client touches an enemy locally, take damage independently
+                if (!isHost && serverEnemies) {
+                    serverEnemies.forEach(e => {
+                        if (e.hp > 0 && checkOverlap(this, e)) {
+                            this.takeDmg(e.dmg || 15);
+                            this.vx = (this.x > e.x) ? 5 : -5;
+                            this.vy = -3;
+                        }
+                    });
                 }
 
                 // MULTIPLAYER SYNC
                 if ((multiplayerMode === 'host' || multiplayerMode === 'client') && socket.connected && currentRoom) {
-                    if (this.x !== this.lastX || this.y !== this.lastY || this.swingAnim > 0 || this.dir !== this.lastDir) {
-                        socket.emit("playerUpdate", { worldId: currentRoom, x: this.x, y: this.y, equip: equipment, activeItem: inventory[activeSlot], dir: this.dir, swingAnim: this.swingAnim });
+                    if (this.x !== this.lastX || this.y !== this.lastY || this.swingAnim > 0 || this.dir !== this.lastDir || hitEvents.length > 0) {
+                        socket.emit("playerUpdate", { 
+                            worldId: currentRoom, x: this.x, y: this.y, 
+                            equip: equipment, activeItem: inventory[activeSlot], 
+                            dir: this.dir, swingAnim: this.swingAnim, 
+                            hitEvents: hitEvents 
+                        });
                         this.lastX = this.x; this.lastY = this.y; this.lastDir = this.dir;
                     }
                 }
@@ -680,9 +743,9 @@
             }
         };
 
-        // --- NEW ENEMIES & BOSSES ---
+        // --- ENEMY CLASSES WITH SYNCED IDs AND TARGETING ---
         class Slime {
-            constructor(x, y) { this.type="Slime"; this.x=x; this.y=y; this.width=24; this.height=16; this.vx=1; this.vy=0; this.jumpPower=6; this.grounded=false; this.jTimer=Math.floor(Math.random()*60); this.hp=30; this.maxHp=30; this.iFrames=0; this.isBoss=false; }
+            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="Slime"; this.x=x; this.y=y; this.width=24; this.height=16; this.vx=1; this.vy=0; this.jumpPower=6; this.grounded=false; this.jTimer=Math.floor(Math.random()*60); this.hp=30; this.maxHp=30; this.iFrames=0; this.isBoss=false; this.dmg=10; }
             update() {
                 if(this.iFrames>0) this.iFrames--; this.jTimer--;
                 let inW = world[Math.floor(this.x/TILE_SIZE)] && world[Math.floor(this.x/TILE_SIZE)][Math.floor(this.y/TILE_SIZE)]===BLOCKS.WATER;
@@ -692,12 +755,12 @@
                 this.y+=this.vy; entityCollide(this, 'y');
                 if(this.x<0){this.x=0; this.vx*=-1;} if(this.x>WORLD_WIDTH*TILE_SIZE-this.width){this.x=WORLD_WIDTH*TILE_SIZE-this.width; this.vx*=-1;}
                 if(this.y > WORLD_HEIGHT*TILE_SIZE) this.hp = 0; 
-                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(10); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
+                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(this.dmg); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
             }
         }
 
         class Crab {
-            constructor(x, y) { this.type="Crab"; this.x=x; this.y=y; this.width=24; this.height=16; this.vx=0.8; this.vy=0; this.grounded=false; this.hp=60; this.maxHp=60; this.iFrames=0; this.isBoss=false; }
+            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="Crab"; this.x=x; this.y=y; this.width=24; this.height=16; this.vx=0.8; this.vy=0; this.grounded=false; this.hp=60; this.maxHp=60; this.iFrames=0; this.isBoss=false; this.dmg=20; }
             update() {
                 if(this.iFrames>0) this.iFrames--;
                 let inW = world[Math.floor(this.x/TILE_SIZE)] && world[Math.floor(this.x/TILE_SIZE)][Math.floor(this.y/TILE_SIZE)]===BLOCKS.WATER;
@@ -706,79 +769,92 @@
                 this.y+=this.vy; entityCollide(this, 'y');
                 if(this.x<0){this.x=0; this.vx*=-1;} if(this.x>WORLD_WIDTH*TILE_SIZE-this.width){this.x=WORLD_WIDTH*TILE_SIZE-this.width; this.vx*=-1;}
                 if(this.y > WORLD_HEIGHT*TILE_SIZE) this.hp = 0; 
-                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(20); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
+                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(this.dmg); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
             }
         }
 
         class Jellyfish {
-            constructor(x, y) { this.type="Jellyfish"; this.x=x; this.y=y; this.width=16; this.height=24; this.vx=0; this.vy=0; this.hp=40; this.maxHp=40; this.iFrames=0; this.timer=0; this.isBoss=false; }
+            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="Jellyfish"; this.x=x; this.y=y; this.width=16; this.height=24; this.vx=0; this.vy=0; this.hp=40; this.maxHp=40; this.iFrames=0; this.timer=0; this.isBoss=false; this.dmg=15; }
             update() {
                 if(this.iFrames>0) this.iFrames--; this.timer--;
                 let inW = world[Math.floor(this.x/TILE_SIZE)] && world[Math.floor(this.x/TILE_SIZE)][Math.floor(this.y/TILE_SIZE)]===BLOCKS.WATER;
+                let target = getClosestTarget(this.x, this.y);
                 if(inW) {
-                    if(this.timer<=0) { this.vy = -3; this.vx = (player.x > this.x ? 1 : -1)*1.5; this.timer=60+Math.random()*40; }
+                    if(this.timer<=0) { this.vy = -3; this.vx = (target.x > this.x ? 1 : -1)*1.5; this.timer=60+Math.random()*40; }
                     this.vy += GRAVITY/4;
                 } else { this.vy += GRAVITY; } 
                 this.x+=this.vx; entityCollide(this, 'x'); this.y+=this.vy; entityCollide(this, 'y');
                 if(this.x<0){this.x=0; this.vx*=-1;} if(this.x>WORLD_WIDTH*TILE_SIZE-this.width){this.x=WORLD_WIDTH*TILE_SIZE-this.width; this.vx*=-1;}
                 if(this.y > WORLD_HEIGHT*TILE_SIZE) this.hp = 0; 
-                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(15); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
+                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(this.dmg); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
             }
         }
 
         class Zombie {
-            constructor(x, y) { this.type="Zombie"; this.x=x; this.y=y; this.width=20; this.height=40; this.vx=1; this.vy=0; this.jumpPower=7; this.grounded=false; this.hp=45; this.maxHp=45; this.iFrames=0; this.isBoss=false; }
+            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="Zombie"; this.x=x; this.y=y; this.width=20; this.height=40; this.vx=1; this.vy=0; this.jumpPower=7; this.grounded=false; this.hp=45; this.maxHp=45; this.iFrames=0; this.isBoss=false; this.dmg=15; }
             update() {
                 if(this.iFrames>0) this.iFrames--;
                 this.vy+=GRAVITY; if(this.vy>TERMINAL_VELOCITY) this.vy=TERMINAL_VELOCITY;
-                this.vx = (player.x > this.x ? 1 : -1) * 1.5; 
+                let target = getClosestTarget(this.x, this.y);
+                this.vx = (target.x > this.x ? 1 : -1) * 1.5; 
                 let pX = this.x; this.x+=this.vx; entityCollide(this, 'x'); 
                 if(this.x===pX && this.grounded) { this.vy = -this.jumpPower; this.grounded = false; }
                 this.y+=this.vy; entityCollide(this, 'y');
                 if(this.y > WORLD_HEIGHT*TILE_SIZE) this.hp = 0; 
-                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(15); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
+                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(this.dmg); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
             }
         }
 
         class Skeleton {
-            constructor(x, y) { this.type="Skeleton"; this.x=x; this.y=y; this.width=20; this.height=40; this.vx=1; this.vy=0; this.jumpPower=8; this.grounded=false; this.hp=80; this.maxHp=80; this.iFrames=0; this.isBoss=false; }
+            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="Skeleton"; this.x=x; this.y=y; this.width=20; this.height=40; this.vx=1; this.vy=0; this.jumpPower=8; this.grounded=false; this.hp=80; this.maxHp=80; this.iFrames=0; this.isBoss=false; this.dmg=20; }
             update() {
                 if(this.iFrames>0) this.iFrames--;
                 this.vy+=GRAVITY; if(this.vy>TERMINAL_VELOCITY) this.vy=TERMINAL_VELOCITY;
-                this.vx = (player.x > this.x ? 1 : -1) * 2.5; 
+                let target = getClosestTarget(this.x, this.y);
+                this.vx = (target.x > this.x ? 1 : -1) * 2.5; 
                 let pX = this.x; this.x+=this.vx; entityCollide(this, 'x'); 
                 if(this.x===pX && this.grounded) { this.vy = -this.jumpPower; this.grounded = false; }
                 this.y+=this.vy; entityCollide(this, 'y');
                 if(this.y > WORLD_HEIGHT*TILE_SIZE) this.hp = 0; 
-                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(20); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
+                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(this.dmg); player.vx=(player.x>this.x)?5:-5; player.vy=-3; }
             }
         }
 
         class DemonEye {
-            constructor(x, y) { this.type="DemonEye"; this.x=x; this.y=y; this.width=20; this.height=20; this.vx=0; this.vy=0; this.hp=40; this.maxHp=40; this.iFrames=0; this.isBoss=false; }
+            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="DemonEye"; this.x=x; this.y=y; this.width=20; this.height=20; this.vx=0; this.vy=0; this.hp=40; this.maxHp=40; this.iFrames=0; this.isBoss=false; this.dmg=15; }
             update() {
-                if(this.iFrames>0) this.iFrames--; let dx = player.x - this.x, dy = player.y - this.y, dist = Math.hypot(dx, dy);
-                if(dist < 600) { this.vx += (dx/dist)*0.15; this.vy += (dy/dist)*0.15; } this.vx *= 0.96; this.vy *= 0.96;
-                this.x+=this.vx; this.y+=this.vy;
-                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(15); player.vx=(player.x>this.x)?5:-5; player.vy=-3; this.vx *= -1; this.vy *= -1; }
+                if(this.iFrames>0) this.iFrames--; 
+                let target = getClosestTarget(this.x, this.y);
+                let dx = target.x - this.x, dy = target.y - this.y, dist = Math.hypot(dx, dy);
+                if(dist < 600) { this.vx += (dx/dist)*0.15; this.vy += (dy/dist)*0.15; } 
+                this.vx *= 0.96; this.vy *= 0.96;
+                
+                // DEMON EYES GET STUCK ON WALLS NOW
+                let pX = this.x; this.x+=this.vx; entityCollide(this, 'x'); if(this.x === pX) this.vx *= -1;
+                let pY = this.y; this.y+=this.vy; entityCollide(this, 'y'); if(this.y === pY) this.vy *= -1;
+                
+                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(this.dmg); player.vx=(player.x>this.x)?5:-5; player.vy=-3; this.vx *= -1; this.vy *= -1; }
             }
         }
 
         class Eater {
-            constructor(x, y) { this.type="Eater"; this.x=x; this.y=y; this.width=24; this.height=24; this.vx=0; this.vy=0; this.hp=40; this.maxHp=40; this.iFrames=0; this.isBoss=false; }
+            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="Eater"; this.x=x; this.y=y; this.width=24; this.height=24; this.vx=0; this.vy=0; this.hp=40; this.maxHp=40; this.iFrames=0; this.isBoss=false; this.dmg=15; }
             update() {
-                if(this.iFrames>0) this.iFrames--; let dx = player.x - this.x, dy = player.y - this.y, dist = Math.hypot(dx, dy);
+                if(this.iFrames>0) this.iFrames--; 
+                let target = getClosestTarget(this.x, this.y);
+                let dx = target.x - this.x, dy = target.y - this.y, dist = Math.hypot(dx, dy);
                 if(dist < 500) { this.vx += (dx/dist)*0.1; this.vy += (dy/dist)*0.1; } this.vx *= 0.95; this.vy *= 0.95;
                 this.x+=this.vx; this.y+=this.vy;
-                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(15); player.vx=(player.x>this.x)?5:-5; player.vy=-3; this.vx *= -1; this.vy *= -1; }
+                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(this.dmg); player.vx=(player.x>this.x)?5:-5; player.vy=-3; this.vx *= -1; this.vy *= -1; }
             }
         }
 
         class EyeBoss {
-            constructor(x, y) { this.type="EyeBoss"; this.x=x; this.y=y; this.width=64; this.height=64; this.vx=0; this.vy=0; this.hp=600; this.maxHp=600; this.iFrames=0; this.isBoss=true; this.state='hover'; this.timer=0; this.name="Eye of Terror"; }
+            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="EyeBoss"; this.x=x; this.y=y; this.width=64; this.height=64; this.vx=0; this.vy=0; this.hp=600; this.maxHp=600; this.iFrames=0; this.isBoss=true; this.state='hover'; this.timer=0; this.name="Eye of Terror"; this.dmg=25; }
             update() {
                 if(this.iFrames>0) this.iFrames--; this.timer++;
-                let pCx = player.x+player.width/2, pCy = player.y+player.height/2, dx = pCx - (this.x+this.width/2), dy = pCy - (this.y+this.height/2);
+                let target = getClosestTarget(this.x, this.y);
+                let pCx = target.x+target.width/2, pCy = target.y+target.height/2, dx = pCx - (this.x+this.width/2), dy = pCy - (this.y+this.height/2);
                 if (this.state === 'hover') {
                     this.vx += (dx*0.02 - this.vx)*0.1; this.vy += ((dy - 150)*0.02 - this.vy)*0.1;
                     if(this.timer > 120) { this.state = 'dash'; this.timer = 0; let angle = Math.atan2(dy, dx); this.vx = Math.cos(angle)*14; this.vy = Math.sin(angle)*14; }
@@ -787,15 +863,16 @@
                 }
                 if (this.hp < 300 && this.state === 'hover' && this.timer > 50) { this.state = 'dash'; this.timer = 0; let angle = Math.atan2(dy, dx); this.vx = Math.cos(angle)*18; this.vy = Math.sin(angle)*18; }
                 this.x += this.vx; this.y += this.vy;
-                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(25); player.vx=(player.x>this.x)?8:-8; player.vy=-5; } triggerUI(); 
+                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(this.dmg); player.vx=(player.x>this.x)?8:-8; player.vy=-5; } triggerUI(); 
             }
         }
 
         class Skeletron {
-            constructor(x, y) { this.type="Skeletron"; this.x=x; this.y=y; this.width=64; this.height=64; this.vx=0; this.vy=0; this.hp=1500; this.maxHp=1500; this.iFrames=0; this.isBoss=true; this.name="Skeletron"; this.timer=0; this.state='float'; }
+            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="Skeletron"; this.x=x; this.y=y; this.width=64; this.height=64; this.vx=0; this.vy=0; this.hp=1500; this.maxHp=1500; this.iFrames=0; this.isBoss=true; this.name="Skeletron"; this.timer=0; this.state='float'; this.dmg=35; }
             update() {
                 if(this.iFrames>0) this.iFrames--; this.timer++;
-                let pCx = player.x+player.width/2, pCy = player.y+player.height/2, dx = pCx - (this.x+this.width/2), dy = pCy - (this.y+this.height/2);
+                let target = getClosestTarget(this.x, this.y);
+                let pCx = target.x+target.width/2, pCy = target.y+target.height/2, dx = pCx - (this.x+this.width/2), dy = pCy - (this.y+this.height/2);
                 if(this.state==='float') {
                     this.vx += (dx*0.01 - this.vx)*0.05; this.vy += ((dy-150)*0.01 - this.vy)*0.05;
                     if(this.timer>200) { this.state='spin'; this.timer=0; }
@@ -804,20 +881,21 @@
                     if(this.timer>100) { this.state='float'; this.timer=0; }
                 }
                 this.x+=this.vx; this.y+=this.vy;
-                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(35); player.vx=(player.x>this.x)?10:-10; player.vy=-5; } triggerUI();
+                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(this.dmg); player.vx=(player.x>this.x)?10:-10; player.vy=-5; } triggerUI();
             }
         }
 
         class KingSlime {
-            constructor(x, y) { this.type="KingSlime"; this.x=x; this.y=y; this.width=96; this.height=64; this.vx=1; this.vy=0; this.jumpPower=12; this.grounded=false; this.jTimer=60; this.hp=800; this.maxHp=800; this.iFrames=0; this.isBoss=true; this.name="King Slime"; }
+            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="KingSlime"; this.x=x; this.y=y; this.width=96; this.height=64; this.vx=1; this.vy=0; this.jumpPower=12; this.grounded=false; this.jTimer=60; this.hp=800; this.maxHp=800; this.iFrames=0; this.isBoss=true; this.name="King Slime"; this.dmg=30; }
             update() {
                 if(this.iFrames>0) this.iFrames--; this.jTimer--;
-                if(Math.abs(this.vx)>1.5) this.vx *= 0.9; else if(this.grounded && this.jTimer<=0) { this.vy = -this.jumpPower; this.grounded = false; this.jTimer=80; this.vx=(player.x > this.x ? 1 : -1)*4; if(Math.random()<0.5) enemies.push(new Slime(this.x+32, this.y)); }
+                let target = getClosestTarget(this.x, this.y);
+                if(Math.abs(this.vx)>1.5) this.vx *= 0.9; else if(this.grounded && this.jTimer<=0) { this.vy = -this.jumpPower; this.grounded = false; this.jTimer=80; this.vx=(target.x > this.x ? 1 : -1)*4; if(Math.random()<0.5) enemies.push(new Slime(this.x+32, this.y)); }
                 this.vy+=GRAVITY; if(this.vy>TERMINAL_VELOCITY) this.vy=TERMINAL_VELOCITY;
                 let pX = this.x; this.x+=this.vx; entityCollide(this, 'x'); if(this.x===pX && Math.abs(this.vx)<=1.5 && this.vx!==0) this.vx*=-1;
                 this.y+=this.vy; entityCollide(this, 'y');
                 if(this.y > WORLD_HEIGHT*TILE_SIZE) this.hp = 0; 
-                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(30); player.vx=(player.x>this.x)?8:-8; player.vy=-5; } triggerUI();
+                if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(this.dmg); player.vx=(player.x>this.x)?8:-8; player.vy=-5; } triggerUI();
             }
         }
 
