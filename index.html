@@ -7,6 +7,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-analytics-compat.js"></script>
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
     <style>
         body { margin: 0; padding: 0; background-color: #000; overflow: hidden; font-family: 'Courier New', Courier, monospace; user-select: none; cursor: crosshair; }
         canvas { display: block; image-rendering: pixelated; }
@@ -63,7 +64,7 @@
     <div id="multi-select" class="full-menu hidden">
         <div class="terraria-title" style="font-size: 50px;">Multiplayer</div>
         <div class="menu-btn" onclick="openWorldSelect('host')">Host & Play</div>
-        <div class="menu-btn" onclick="joinGame()">Join via IP/Code</div>
+        <div class="menu-btn" onclick="joinGame()">Join via Room Name</div>
         <div class="menu-btn" onclick="backToMain()">Back</div>
     </div>
 
@@ -126,6 +127,23 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
         const analytics = firebase.analytics();
+
+        // --- SOCKET.IO INIT ---
+        const socket = io("https://vrajerria-github-io.onrender.com", { autoConnect: false });
+        let otherPlayers = {};
+        let currentRoom = null;
+
+        socket.on("updatePlayers", (players) => {
+            otherPlayers = players;
+            if (socket.id && otherPlayers[socket.id]) delete otherPlayers[socket.id];
+        });
+
+        socket.on("playerMoved", (data) => {
+            if (data.id === socket.id) return;
+            if (!otherPlayers[data.id]) otherPlayers[data.id] = {};
+            otherPlayers[data.id].x = data.x;
+            otherPlayers[data.id].y = data.y;
+        });
 
         // --- GAME VARIABLES & SETUP ---
         const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d', { alpha: false }); 
@@ -214,8 +232,10 @@
             inventory[0] = { id: ITEMS.SWORD, count: 1 }; inventory[1] = { id: ITEMS.PICKAXE, count: 1 }; inventory[2] = { id: ITEMS.AXE, count: 1 };
             inventory[3] = { id: ITEMS.BOW, count: 1 }; inventory[4] = { id: ITEMS.ARROW, count: 100 }; inventory[5] = { id: BLOCKS.WOOD, count: 99 };
             player.hp = 100; player.x = TILE_SIZE*(WORLD_WIDTH/2); player.y = 0;
+            player.lastX = 0; player.lastY = 0;
             chestData = {}; world = []; worldSurface = [];
             gameTime = 6000; enemies = []; projectiles = []; particles = [];
+            otherPlayers = {};
         }
 
         const RECIPES = [
@@ -292,6 +312,7 @@
         function exitToMainMenu() {
             saveGame();
             gameState = 'MENU';
+            if (socket.connected) socket.disconnect();
             $('in-game-menu').classList.add('hidden');
             $('ui-layer').style.display = 'none';
             ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -299,11 +320,20 @@
         }
 
         function joinGame() {
-            alert("Connecting via Firebase Firestore for real-time multiplayer is not viable for this game's tick rate. To achieve this, a WebSocket/WebRTC implementation is required. Stub for future updates.");
+            let room = prompt("Enter the Room Name you want to join (e.g., slot1, slot2, slot3):", "slot1");
+            if (room) {
+                multiplayerMode = 'client';
+                currentRoom = room;
+                $('multi-select').classList.add('hidden');
+                $('loading-screen').style.display = 'flex';
+                resetPlayerState();
+                setTimeout(() => { generateWorld(); startGameLoop(); }, 100);
+            }
         }
 
         function startNewGame(slotId) {
             currentSlotId = slotId;
+            currentRoom = slotId;
             $('world-select').classList.add('hidden');
             $('loading-screen').style.display = 'flex';
             resetPlayerState();
@@ -320,6 +350,7 @@
             let s = localStorage.getItem('sandboxSave_' + slotId); 
             if(s) { 
                 currentSlotId = slotId;
+                currentRoom = slotId;
                 let d = JSON.parse(s); 
                 world=d.world; worldSurface=d.worldSurface; inventory=d.inventory; equipment=d.equipment; chestData=d.chestData||{}; gameTime=d.time; player.x=d.px; player.y=d.py; player.hp=d.hp; 
                 $('world-select').classList.add('hidden');
@@ -333,6 +364,14 @@
             $('ui-layer').style.display = 'block';
             needsUIUpdate = true;
             recalcStats();
+            
+            if (multiplayerMode === 'host' || multiplayerMode === 'client') {
+                socket.connect();
+                socket.emit("joinWorld", currentRoom);
+            } else {
+                if (socket.connected) socket.disconnect();
+            }
+            
             requestAnimationFrame(loop);
         }
 
@@ -506,6 +545,7 @@
         const player = {
             x: TILE_SIZE*(WORLD_WIDTH/2), y: 0, width: 20, height: 40, vx: 0, vy: 0, baseSpeed: 5, jumpPower: 6, grounded: false, dir: 1, 
             isJumping: false, jumpFrames: 0, maxJumps: 1, jumpsDone: 0, hp: 100, maxHp: 100, iFrames: 0, attkTimer: 0, swingAnim: 0, defense: 0, 
+            lastX: 0, lastY: 0,
             update: function() {
                 if (this.iFrames > 0) this.iFrames--; if (this.attkTimer > 0) this.attkTimer--; if (this.swingAnim > 0) this.swingAnim--;
                 let jKey = keys['KeyW'] || keys['Space'] || keys['ArrowUp']; let pJKey = prevKeys['KeyW'] || prevKeys['Space'] || prevKeys['ArrowUp'];
@@ -551,6 +591,15 @@
                     } else if (isTool.type !== TOOL_TYPES.CONSUME && isTool.type !== TOOL_TYPES.PICKAXE && isTool.type !== TOOL_TYPES.AXE) {
                         let box = { x: this.dir===1 ? this.x+this.width : this.x-30, y: this.y, width: 30, height: this.height };
                         enemies.forEach(e => { if (checkOverlap(box, e)) { e.hp -= isTool.dmg; e.vx = this.dir*6; e.vy = -4; e.iFrames = 10; spawnParticles(e.x, e.y, '#f00', 5); }});
+                    }
+                }
+
+                // MULTIPLAYER SYNC
+                if ((multiplayerMode === 'host' || multiplayerMode === 'client') && socket.connected && currentRoom) {
+                    if (this.x !== this.lastX || this.y !== this.lastY) {
+                        socket.emit("playerMove", { worldId: currentRoom, x: this.x, y: this.y });
+                        this.lastX = this.x;
+                        this.lastY = this.y;
                     }
                 }
             },
@@ -919,7 +968,19 @@
                 }
             }
             
-            player.draw(camera.x, camera.y); enemies.forEach(e => e.draw(camera.x, camera.y));
+            player.draw(camera.x, camera.y); 
+            
+            // DRAW OTHER PLAYERS (in a red shirt so you can tell them apart!)
+            for (let id in otherPlayers) {
+                let p = otherPlayers[id];
+                if (p.x !== undefined && p.y !== undefined) {
+                    ctx.fillStyle = '#fce2c4'; ctx.fillRect(Math.floor(p.x-camera.x+4), Math.floor(p.y-camera.y), 12, 12);
+                    ctx.fillStyle = '#f00'; ctx.fillRect(Math.floor(p.x-camera.x+2), Math.floor(p.y-camera.y+12), 16, 16); 
+                    ctx.fillStyle = '#555'; ctx.fillRect(Math.floor(p.x-camera.x+4), Math.floor(p.y-camera.y+28), 4, 12); ctx.fillRect(Math.floor(p.x-camera.x+12), Math.floor(p.y-camera.y+28), 4, 12);
+                }
+            }
+
+            enemies.forEach(e => e.draw(camera.x, camera.y));
             projectiles.forEach(p => { ctx.fillStyle = p.type==='arrow'?'#fff':'#f00'; ctx.fillRect(Math.floor(p.x-camera.x-2), Math.floor(p.y-camera.y-2), 4, 4); });
             particles.forEach(p => { ctx.fillStyle = p.color; ctx.fillRect(Math.floor(p.x-camera.x), Math.floor(p.y-camera.y), Math.max(2, p.life/10), Math.max(2, p.life/10)); });
 
