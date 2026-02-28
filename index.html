@@ -40,14 +40,12 @@
         #tooltip { display: none; position: absolute; background: rgba(20, 20, 40, 0.9); color: white; padding: 8px 12px; border: 2px solid #1e2642; border-radius: 4px; font-size: 12px; font-family: sans-serif; pointer-events: none; z-index: 100; white-space: pre-wrap; text-shadow: 1px 1px 1px black; box-shadow: 2px 2px 5px rgba(0,0,0,0.5); }
         #cursor-item { display: none; position: absolute; width: 32px; height: 32px; pointer-events: none; z-index: 101; text-align: right; font-weight: bold; color: white; text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;}
         #loading-screen { display: none; position: absolute; top:0; left:0; width:100%; height:100%; background:#000; color:#fff; flex-direction: column; justify-content:center; align-items:center; z-index: 999; font-size: 24px; font-weight: bold; }
-        
-        /* --- NEW MENU STYLES --- */
         .full-menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #6888b8; background-image: linear-gradient(to bottom, #3a5a8c, #6888b8 40%, #466628 40%, #244408); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; }
         .terraria-title { font-size: 80px; color: #fff; text-shadow: 0 4px 0 #888, 0 -4px 0 #888, 4px 0 0 #888, -4px 0 0 #888, 6px 6px 10px rgba(0,0,0,0.8); margin-bottom: 60px; font-family: Impact, sans-serif; letter-spacing: 4px; }
         .menu-btn { background: #3a4b7c; color: white; border: 4px solid #1e2642; padding: 15px 40px; font-size: 24px; font-weight: bold; cursor: pointer; margin: 10px; width: 300px; text-align: center; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.5); transition: transform 0.1s, background 0.1s; }
         .menu-btn:hover { background: #FFD700; color: #000; border-color: #fff; transform: scale(1.05); }
         .hidden { display: none !important; }
-        #world-select, #multi-select, #in-game-menu { background: rgba(0,0,0,0.8); }
+        #world-select, #multi-select, #in-game-menu { background: rgba(0,0,0,0.8); pointer-events: auto; }
         .world-slot { display: flex; justify-content: space-between; align-items: center; background: #3a4b7c; border: 4px solid #1e2642; width: 400px; padding: 15px; margin: 10px; border-radius: 8px; color: white; cursor: pointer; }
         .world-slot:hover { border-color: #FFD700; }
         .slot-title { font-size: 20px; font-weight: bold; }
@@ -55,6 +53,8 @@
     </style>
 </head>
 <body>
+    <audio id="bgm" src="https://ia800806.us.archive.org/15/items/TerrariaTheme/Terraria%20Theme.mp3" loop preload="auto"></audio>
+
     <div id="main-menu" class="full-menu">
         <div class="terraria-title">TERRARIA CLONE</div>
         <div class="menu-btn" onclick="openWorldSelect('single')">Singleplayer</div>
@@ -75,6 +75,8 @@
     </div>
 
     <div id="in-game-menu" class="full-menu hidden" style="z-index: 1000; background: rgba(0,0,0,0.6);">
+        <div class="terraria-title" style="font-size: 40px; margin-bottom: 20px;">GAME PAUSED</div>
+        <div style="color: white; margin-bottom: 20px;" id="mp-pause-warning"></div>
         <div class="menu-btn" onclick="togglePauseMenu()">Resume</div>
         <div class="menu-btn" onclick="saveGame()">Save Game</div>
         <div class="menu-btn" onclick="exitToMainMenu()">Save & Exit</div>
@@ -115,22 +117,50 @@
 
     <script>
         // --- FIREBASE INIT ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyBn2LuoY0ZqHnz2nVx3ZidRVPv3GgAYRGU",
-            authDomain: "fniv-f6e02.firebaseapp.com",
-            projectId: "fniv-f6e02",
-            storageBucket: "fniv-f6e02.firebasestorage.app",
-            messagingSenderId: "752134357498",
-            appId: "1:752134357498:web:705930bd9e349413b42443",
-            measurementId: "G-QKNGMXXLQJ"
-        };
+        const firebaseConfig = { apiKey: "AIzaSyBn2LuoY0ZqHnz2nVx3ZidRVPv3GgAYRGU", authDomain: "fniv-f6e02.firebaseapp.com", projectId: "fniv-f6e02", storageBucket: "fniv-f6e02.firebasestorage.app", messagingSenderId: "752134357498", appId: "1:752134357498:web:705930bd9e349413b42443", measurementId: "G-QKNGMXXLQJ" };
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
-        const analytics = firebase.analytics();
+
+        // --- WEB AUDIO ENGINE ---
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+        
+        function playSFX(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            let t = audioCtx.currentTime;
+            
+            if (type === 'swing') {
+                osc.type = 'triangle'; osc.frequency.setValueAtTime(400, t); osc.frequency.exponentialRampToValueAtTime(100, t + 0.1);
+                gain.gain.setValueAtTime(0.3, t); gain.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+                osc.start(t); osc.stop(t + 0.1);
+            } else if (type === 'hit') {
+                osc.type = 'square'; osc.frequency.setValueAtTime(150, t); osc.frequency.exponentialRampToValueAtTime(50, t + 0.1);
+                gain.gain.setValueAtTime(0.4, t); gain.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+                osc.start(t); osc.stop(t + 0.1);
+            } else if (type === 'mine') {
+                osc.type = 'square'; osc.frequency.setValueAtTime(200, t);
+                gain.gain.setValueAtTime(0.2, t); gain.gain.exponentialRampToValueAtTime(0.01, t + 0.05);
+                osc.start(t); osc.stop(t + 0.05);
+            } else if (type === 'jump') {
+                osc.type = 'sine'; osc.frequency.setValueAtTime(300, t); osc.frequency.linearRampToValueAtTime(500, t + 0.15);
+                gain.gain.setValueAtTime(0.2, t); gain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+                osc.start(t); osc.stop(t + 0.15);
+            }
+        }
+
+        // Play BGM 
+        function playBGM() {
+            let bgm = document.getElementById('bgm');
+            bgm.volume = 0.3;
+            bgm.play().catch(e => console.log("BGM Play prevented by browser auto-play policy until interaction."));
+        }
 
         // --- CUSTOM PLAYER SPRITE ---
         const playerImg = new Image();
-        playerImg.src = 'vraj.png'; // Will gracefully fallback to blocks if not found
+        playerImg.src = 'vraj.png'; // Gracefully falls back to blocks if not found
 
         // --- SOCKET.IO INIT ---
         const socket = io("https://vrajerria-github-io.onrender.com", { autoConnect: false });
@@ -154,24 +184,23 @@
             otherPlayers[data.id].activeItem = data.activeItem;
             otherPlayers[data.id].dir = data.dir;
             otherPlayers[data.id].swingAnim = data.swingAnim;
+            otherPlayers[data.id].paused = data.paused; // Track network pause state
 
             if (isHost && data.hitEvents && data.hitEvents.length > 0) {
                 data.hitEvents.forEach(hit => {
                     let e = enemies.find(en => en.id === hit.id);
                     if (e && e.hp > 0) {
                         e.hp -= hit.dmg;
-                        e.vx = hit.dir * 6;
-                        e.vy = -4;
-                        e.iFrames = 10;
+                        e.vx = hit.dir * 6; e.vy = -4; e.iFrames = 10;
                         spawnParticles(e.x, e.y, '#f00', 5);
+                        playSFX('hit');
                     }
                 });
             }
         });
 
         socket.on("worldData", (data) => {
-            world = data.world;
-            worldSurface = data.worldSurface;
+            world = data.world; worldSurface = data.worldSurface;
             $('loading-screen').style.display = 'none';
             startGameLoop();
         });
@@ -180,6 +209,7 @@
             if (world[data.x] && world[data.x][data.y] !== undefined) {
                 world[data.x][data.y] = data.id;
                 spawnParticles(data.x * TILE_SIZE, data.y * TILE_SIZE, getBlockColor(data.id), 8);
+                if (data.id === 0) playSFX('mine');
             }
         });
 
@@ -190,18 +220,12 @@
                 return;
             }
             if (!isHost) {
-                serverEnemies = data.enemies;
-                serverProjectiles = data.projectiles;
-                if (data.chestData) {
-                    chestData = data.chestData;
-                    if (inventoryOpen && activeChestKey) triggerUI();
-                }
+                serverEnemies = data.enemies; serverProjectiles = data.projectiles;
+                if (data.chestData) { chestData = data.chestData; if (inventoryOpen && activeChestKey) triggerUI(); }
             }
         });
 
-        socket.on("spawnProjectile", (data) => {
-            if (isHost) projectiles.push(data);
-        });
+        socket.on("spawnProjectile", (data) => { if (isHost) projectiles.push(data); });
 
         // --- GAME VARIABLES & SETUP ---
         const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d', { alpha: false }); 
@@ -209,6 +233,7 @@
         function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; ctx.imageSmoothingEnabled = false; } window.addEventListener('resize', resize); resize();
 
         let gameState = 'MENU'; 
+        let localPaused = false; // For multiplayer consensus pausing
         let currentSlotId = null;
         let multiplayerMode = null; 
 
@@ -230,6 +255,9 @@
             [ITEMS.SUS_EYE]: {type:5, use:30, max:1}, [ITEMS.SLIME_CROWN]: {type:5, use:30, max:1}, [ITEMS.SKULL_DOLL]: {type:5, use:30, max:1}, [ITEMS.LENS]: {max:99}, [ITEMS.BONE]: {max:99}
         };
         const MINING_REQS = { [BLOCKS.DIRT]:1, [BLOCKS.GRASS]:1, [BLOCKS.STONE]:1, [BLOCKS.COPPER_ORE]:1, [BLOCKS.SAND]:1, [BLOCKS.CORRUPT_GRASS]:1, [BLOCKS.CORRUPT_STONE]:1, [BLOCKS.WOOD]:2, [BLOCKS.LEAVES]:2, [BLOCKS.CACTUS]:2, [BLOCKS.WORKBENCH]:2, [BLOCKS.TORCH]:0, [BLOCKS.CHEST]:2, [BLOCKS.PLATFORM]:2, [BLOCKS.FURNACE]:1 };
+
+        // --- PRECOMPUTED LIGHTING ARRAY FOR HUGE FPS BOOST ---
+        const SHADOW_COLORS = Array.from({length: 21}, (_, i) => `rgba(0,0,0,${1 - i/20})`);
 
         // --- PROCEDURAL SPRITES ---
         const SPRITES = {};
@@ -295,6 +323,7 @@
             chestData = {}; world = []; worldSurface = [];
             gameTime = 6000; enemies = []; projectiles = []; particles = [];
             otherPlayers = {}; serverEnemies = []; serverProjectiles = [];
+            localPaused = false;
         }
 
         const RECIPES = [
@@ -340,38 +369,29 @@
             }
         }
 
-        function openWorldSelect(mode) {
-            $('main-menu').classList.add('hidden');
-            $('multi-select').classList.add('hidden');
-            $('world-select').classList.remove('hidden');
-            renderWorldSlots(mode);
-        }
-
-        function openMultiplayerMenu() {
-            $('main-menu').classList.add('hidden');
-            $('multi-select').classList.remove('hidden');
-        }
-
-        function backToMain() {
-            $('world-select').classList.add('hidden');
-            $('multi-select').classList.add('hidden');
-            $('main-menu').classList.remove('hidden');
-        }
+        function openWorldSelect(mode) { playBGM(); $('main-menu').classList.add('hidden'); $('multi-select').classList.add('hidden'); $('world-select').classList.remove('hidden'); renderWorldSlots(mode); }
+        function openMultiplayerMenu() { playBGM(); $('main-menu').classList.add('hidden'); $('multi-select').classList.remove('hidden'); }
+        function backToMain() { $('world-select').classList.add('hidden'); $('multi-select').classList.add('hidden'); $('main-menu').classList.remove('hidden'); }
 
         function togglePauseMenu() {
             if (gameState === 'PLAYING') {
-                gameState = 'PAUSED';
-                $('in-game-menu').classList.remove('hidden');
-            } else if (gameState === 'PAUSED') {
-                gameState = 'PLAYING';
-                $('in-game-menu').classList.add('hidden');
-                requestAnimationFrame(loop);
+                localPaused = !localPaused;
+                if (localPaused) {
+                    $('in-game-menu').classList.remove('hidden');
+                    if (multiplayerMode !== 'single') {
+                        $('mp-pause-warning').innerText = "Notice: The game world continues unless ALL players pause.";
+                    }
+                } else {
+                    $('in-game-menu').classList.add('hidden');
+                }
+                if (socket.connected && currentRoom) socket.emit("playerUpdate", { worldId: currentRoom, paused: localPaused });
             }
         }
 
         function exitToMainMenu() {
             saveGame();
             gameState = 'MENU';
+            localPaused = false;
             if (socket.connected) socket.disconnect();
             $('in-game-menu').classList.add('hidden');
             $('ui-layer').style.display = 'none';
@@ -380,40 +400,24 @@
         }
 
         function joinGame() {
+            playBGM();
             let room = prompt("Enter the Room Name you want to join (e.g., slot1, slot2, slot3):", "slot1");
             if (room) {
-                multiplayerMode = 'client';
-                currentRoom = room;
-                isHost = false;
-                $('multi-select').classList.add('hidden');
-                $('loading-screen').style.display = 'flex';
-                $('loading-progress').style.display = 'none';
-                $('loading-text').innerText = "Downloading World Data...";
-                
+                multiplayerMode = 'client'; currentRoom = room; isHost = false;
+                $('multi-select').classList.add('hidden'); $('loading-screen').style.display = 'flex'; $('loading-progress').style.display = 'none'; $('loading-text').innerText = "Downloading World Data...";
                 resetPlayerState();
                 
-                // LOAD CLIENT SPECIFIC SAVE IF IT EXISTS
                 let s = localStorage.getItem('clientSave_' + room);
-                if (s) {
-                    let d = JSON.parse(s);
-                    inventory = d.inventory || inventory;
-                    equipment = d.equipment || equipment;
-                    player.hp = d.hp || 100;
-                }
+                if (s) { let d = JSON.parse(s); inventory = d.inventory || inventory; equipment = d.equipment || equipment; player.hp = d.hp || 100; }
                 
-                socket.connect();
-                socket.emit("joinWorld", currentRoom);
+                socket.connect(); socket.emit("joinWorld", currentRoom);
             }
         }
 
         function startNewGame(slotId) {
-            currentSlotId = slotId;
-            currentRoom = slotId;
-            isHost = true;
-            $('world-select').classList.add('hidden');
-            $('loading-screen').style.display = 'flex';
-            $('loading-progress').style.display = 'block';
-            $('loading-text').innerText = "Generating World...";
+            playBGM();
+            currentSlotId = slotId; currentRoom = slotId; isHost = true;
+            $('world-select').classList.add('hidden'); $('loading-screen').style.display = 'flex'; $('loading-progress').style.display = 'block'; $('loading-text').innerText = "Generating World...";
             resetPlayerState();
             setTimeout(() => { generateWorld(); startGameLoop(); }, 100);
         }
@@ -427,11 +431,10 @@
         }
 
         function loadGame(slotId) { 
+            playBGM();
+            currentSlotId = slotId; currentRoom = slotId; isHost = true;
             let s = localStorage.getItem('sandboxSave_' + slotId); 
             if(s) { 
-                currentSlotId = slotId;
-                currentRoom = slotId;
-                isHost = true;
                 let d = JSON.parse(s); 
                 world=d.world; worldSurface=d.worldSurface; inventory=d.inventory; equipment=d.equipment; chestData=d.chestData||{}; gameTime=d.time; player.x=d.px; player.y=d.py; player.hp=d.hp; 
                 $('world-select').classList.add('hidden');
@@ -440,22 +443,11 @@
         }
 
         function startGameLoop() {
-            gameState = 'PLAYING';
-            $('loading-screen').style.display = 'none';
-            $('ui-layer').style.display = 'block';
-            needsUIUpdate = true;
-            recalcStats();
-            
+            gameState = 'PLAYING'; $('loading-screen').style.display = 'none'; $('ui-layer').style.display = 'block'; needsUIUpdate = true; recalcStats();
             if (multiplayerMode === 'host' || multiplayerMode === 'client') {
                 if (!socket.connected) socket.connect();
-                if (isHost) {
-                    socket.emit("joinWorld", currentRoom);
-                    socket.emit("hostWorld", { worldId: currentRoom, world: world, worldSurface: worldSurface });
-                }
-            } else {
-                if (socket.connected) socket.disconnect();
-            }
-            
+                if (isHost) { socket.emit("joinWorld", currentRoom); socket.emit("hostWorld", { worldId: currentRoom, world: world, worldSurface: worldSurface }); }
+            } else { if (socket.connected) socket.disconnect(); }
             requestAnimationFrame(loop);
         }
 
@@ -471,11 +463,7 @@
             } else if (tSlot.id !== 0) { cursorItem = {id: tSlot.id, count: tSlot.count}; tSlot.id = 0; tSlot.count = 0; }
             
             recalcStats(); triggerUI(); updateCursorFollower();
-            
-            // Sync Multiplayer Chest Changes
-            if (socket.connected && type === 'chest') {
-                socket.emit("syncEntities", { worldId: currentRoom, isChestUpdate: true, chestData: chestData });
-            }
+            if (socket.connected && type === 'chest') socket.emit("syncEntities", { worldId: currentRoom, isChestUpdate: true, chestData: chestData });
         }
 
         function giveItem(itemId, amount = 1) {
@@ -494,8 +482,6 @@
         function recalcStats() { 
             player.defense = equipment.reduce((def, eq) => def + (ITEM_DATA[eq.id]?.def || 0), 0); 
             $('stats-display').innerText = `Defense: ${player.defense}`; 
-            
-            // NERFED WALK SPEED
             player.baseSpeed = 2.5; player.maxJumps = 1;
             if(equipment[3] && equipment[3].id === ITEMS.HERMES_BOOTS) player.baseSpeed = 4;
             if(equipment[3] && equipment[3].id === ITEMS.CLOUD_BOTTLE) player.maxJumps = 2;
@@ -553,19 +539,8 @@
 
         window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; if(tooltip.style.display === 'block') { tooltip.style.left = e.pageX + 15 + 'px'; tooltip.style.top = e.pageY + 15 + 'px'; } if(cursorItem.id !== 0) updateCursorFollower(); });
         
-        // MOUSE DOWN ONLY TRIGGERS ON CANVAS (Prevents swinging/mining when clicking UI)
-        canvas.addEventListener('mousedown', e => { 
-            if (gameState === 'PLAYING') { 
-                if (e.button === 0) mouse.leftDown = true; 
-                if (e.button === 2) mouse.rightDown = true; 
-            }
-        });
-        
-        // MOUSE UP TRIGGERS GLOBALLY (Prevents mouse from getting stuck if lifted over UI)
-        window.addEventListener('mouseup', e => { 
-            if (e.button === 0) mouse.leftDown = false; 
-            if (e.button === 2) mouse.rightDown = false; 
-        });
+        canvas.addEventListener('mousedown', e => { if (gameState === 'PLAYING' && !localPaused) { if (e.button === 0) mouse.leftDown = true; if (e.button === 2) mouse.rightDown = true; }});
+        window.addEventListener('mouseup', e => { if (e.button === 0) mouse.leftDown = false; if (e.button === 2) mouse.rightDown = false; });
         
         const keys = {}; let prevKeys = {}; 
         window.addEventListener('keydown', e => {
@@ -574,9 +549,7 @@
                 if (e.key >= '0' && e.key <= '9') { activeSlot = e.key === '0' ? 9 : parseInt(e.key) - 1; triggerUI(); }
                 if (e.code === 'KeyE' || e.code === 'Tab') { e.preventDefault(); inventoryOpen = !inventoryOpen; $('menu-container').style.display = inventoryOpen ? 'flex' : 'none'; if(!inventoryOpen) { activeChestKey = null; if(cursorItem.id !== 0) { giveItem(cursorItem.id, cursorItem.count); cursorItem = {id:0, count:0}; updateCursorFollower(); }} triggerUI(); hideTooltip(); }
             }
-            if (e.code === 'Escape') {
-                if (gameState === 'PLAYING' || gameState === 'PAUSED') togglePauseMenu();
-            }
+            if (e.code === 'Escape' && gameState === 'PLAYING') { togglePauseMenu(); }
         });
         window.addEventListener('keyup', e => keys[e.code] = false);
 
@@ -653,19 +626,16 @@
                 let p = otherPlayers[id];
                 if (p.x !== undefined) {
                     let dist = Math.hypot(p.x - ex, p.y - ey);
-                    if (dist < minDist) { 
-                        minDist = dist; 
-                        closest = { x: p.x, y: p.y, width: 22, height: 60 }; 
-                    }
+                    if (dist < minDist) { minDist = dist; closest = { x: p.x, y: p.y, width: 20, height: 50 }; }
                 }
             }
             return closest;
         }
 
-        // --- CENTRALIZED PLAYER DRAW FUNCTION (NOW SUPPORTS vraj.png AND ANCHORED SWING) ---
+        // --- CENTRALIZED PLAYER DRAW FUNCTION (NOW SUPPORTS vraj.png, SCALED ARMOR, AND PROPER TOOL ANCHORS) ---
         function drawPlayerSprite(px, py, pEquip, pItem, pDir, pSwing, cx, cy) {
             if (!pEquip) pEquip = [];
-            let pw = 22, ph = 60; // Just under 2 blocks tall
+            let pw = 20, ph = 50; 
             
             // Base character
             if (playerImg.complete && playerImg.naturalWidth > 0) {
@@ -678,22 +648,22 @@
                 ctx.fillStyle = '#fce2c4'; ctx.fillRect(Math.floor(px-cx), Math.floor(py-cy), pw, ph); 
             }
 
-            // Overlay Armor
+            // Overlay Armor Scaled
             if (pEquip[1] && pEquip[1].id === ITEMS.CHEST_ARMOR) { 
                 ctx.fillStyle = '#cda434'; 
-                ctx.fillRect(Math.floor(px-cx), Math.floor(py-cy+ph*0.35), pw, ph*0.3); 
+                ctx.fillRect(Math.floor(px-cx-1), Math.floor(py-cy+ph*0.35), pw+2, ph*0.3); 
             }
             if (pEquip[2] && pEquip[2].id === ITEMS.LEGS) { 
                 ctx.fillStyle = '#cda434'; 
-                ctx.fillRect(Math.floor(px-cx+2), Math.floor(py-cy+ph*0.65), 6, ph*0.35); 
-                ctx.fillRect(Math.floor(px-cx+pw-8), Math.floor(py-cy+ph*0.65), 6, ph*0.35); 
+                ctx.fillRect(Math.floor(px-cx+2), Math.floor(py-cy+ph*0.65), 5, ph*0.35); 
+                ctx.fillRect(Math.floor(px-cx+pw-7), Math.floor(py-cy+ph*0.65), 5, ph*0.35); 
             }
             if (pEquip[0] && pEquip[0].id === ITEMS.HELMET) { 
                 ctx.fillStyle = '#cda434'; 
                 ctx.fillRect(Math.floor(px-cx-2), Math.floor(py-cy-2), pw+4, ph*0.25); 
             }
 
-            // Anchored Tool Swing
+            // Anchored Tool Swing (Handled purely on transform origin now, making it look natural)
             if (pSwing > 0 && pItem && pItem.id !== 0) {
                 let isTool = ITEM_DATA[pItem.id];
                 if(isTool && isTool.type !== TOOL_TYPES.BOW && isTool.type !== TOOL_TYPES.MAGIC && SPRITES[pItem.id]) { 
@@ -701,10 +671,14 @@
                     let hX = pDir === 1 ? px - cx + pw - 4 : px - cx + 4;
                     let hY = py - cy + ph*0.5; // Anchor at Hand level
                     ctx.translate(hX, hY);
+                    
+                    // Tools drawn 40% larger
+                    ctx.scale(1.4, 1.4);
                     let progress = 1 - (pSwing / isTool.use); 
+                    
                     if (pDir === 1) {
                         ctx.rotate(-Math.PI/4 + progress * Math.PI); 
-                        ctx.drawImage(SPRITES[pItem.id], -16, -28);  // Tool handle positioned precisely at translation anchor
+                        ctx.drawImage(SPRITES[pItem.id], -16, -28); 
                     } else {
                         ctx.scale(-1, 1);
                         ctx.rotate(-Math.PI/4 + progress * Math.PI);
@@ -718,7 +692,7 @@
         let projectiles = []; let miningData = { x: -1, y: -1, progress: 0 };
 
         const player = {
-            x: TILE_SIZE*(WORLD_WIDTH/2), y: 0, width: 22, height: 60, vx: 0, vy: 0, baseSpeed: 2.5, jumpPower: 5, grounded: false, dir: 1, 
+            x: TILE_SIZE*(WORLD_WIDTH/2), y: 0, width: 20, height: 50, vx: 0, vy: 0, baseSpeed: 2.5, jumpPower: 5, grounded: false, dir: 1, 
             isJumping: false, jumpFrames: 0, maxJumps: 1, jumpsDone: 0, hp: 100, maxHp: 100, iFrames: 0, attkTimer: 0, swingAnim: 0, defense: 0, 
             lastX: 0, lastY: 0, lastDir: 1,
             update: function() {
@@ -730,7 +704,7 @@
                 let cGrav = inWater ? GRAVITY/3 : GRAVITY, cTerm = inWater ? TERMINAL_VELOCITY/3 : TERMINAL_VELOCITY;
                 let cSpeed = inWater ? this.baseSpeed/2 : this.baseSpeed, cJump = inWater ? this.jumpPower/1.5 : this.jumpPower;
 
-                // MOVEMENT HAPPENS EVEN IF INVENTORY IS OPEN
+                // MOVEMENT
                 if ((keys['KeyA']||keys['ArrowLeft']) && !keys['KeyD']) { this.vx = -cSpeed; this.dir = -1; if(this.grounded && cSpeed>4 && Math.random()<0.3) spawnParticles(this.x, this.y+this.height, '#fff', 1); }
                 else if ((keys['KeyD']||keys['ArrowRight']) && !keys['KeyA']) { this.vx = cSpeed; this.dir = 1; if(this.grounded && cSpeed>4 && Math.random()<0.3) spawnParticles(this.x, this.y+this.height, '#fff', 1); }
                 else this.vx = 0;
@@ -740,8 +714,9 @@
                     this.vy = -cJump; this.isJumping = true; this.jumpFrames = 0; this.grounded = false; 
                     if(this.jumpsDone > 0 && !inWater) spawnParticles(this.x, this.y+this.height, '#fff', 8); 
                     if(!inWater) this.jumpsDone++; 
+                    playSFX('jump');
                 }
-                // NERFED JUMP SUSTAIN (Limits height precisely)
+                
                 if (jKey && this.isJumping) { this.jumpFrames++; if(this.jumpFrames < 8) this.vy -= (inWater ? 0.2 : 0.5); else this.isJumping = false; }
                 if (!jKey) { this.isJumping = false; if(this.vy < -3) this.vy = -3; }
 
@@ -755,8 +730,10 @@
                 this.justSwung = false;
                 let hitEvents = [];
 
-                if (mouse.leftDown && isTool && this.attkTimer <= 0) {
+                if (mouse.leftDown && isTool && this.attkTimer <= 0 && !inventoryOpen) {
                     this.attkTimer = isTool.use; this.swingAnim = isTool.use; this.justSwung = true;
+                    if (isTool.type !== TOOL_TYPES.MAGIC && isTool.type !== TOOL_TYPES.BOW) playSFX('swing');
+                    
                     if (isTool.type === TOOL_TYPES.BOW) {
                         if (consumeItem(ITEMS.ARROW, 1)) {
                             let pCx = this.x + this.width/2, pCy = this.y + this.height/2, angle = Math.atan2((mouse.y + camera.y) - pCy, (mouse.x + camera.x) - pCx);
@@ -777,6 +754,7 @@
                             if (checkOverlap(box, e) && e.hp > 0) { 
                                 if (isHost) {
                                     e.hp -= isTool.dmg; e.vx = this.dir*6; e.vy = -4; e.iFrames = 10; spawnParticles(e.x, e.y, '#f00', 5); 
+                                    playSFX('hit');
                                 } else {
                                     hitEvents.push({ id: e.id, dmg: isTool.dmg, dir: this.dir });
                                     e.iFrames = 10; spawnParticles(e.x, e.y, '#f00', 5);
@@ -786,7 +764,6 @@
                     }
                 }
 
-                // If Client touches an enemy locally, take damage independently
                 if (!isHost && serverEnemies) {
                     serverEnemies.forEach(e => {
                         if (e.hp > 0 && checkOverlap(this, e)) {
@@ -797,7 +774,6 @@
                     });
                 }
 
-                // MULTIPLAYER SYNC
                 if ((multiplayerMode === 'host' || multiplayerMode === 'client') && socket.connected && currentRoom) {
                     if (this.x !== this.lastX || this.y !== this.lastY || this.swingAnim > 0 || this.dir !== this.lastDir || hitEvents.length > 0) {
                         socket.emit("playerUpdate", { 
@@ -812,7 +788,7 @@
             },
             takeDmg: function(amt) {
                 if (this.iFrames === 0) {
-                    this.hp -= Math.max(1, amt - this.defense); this.iFrames = 60; triggerUI();
+                    this.hp -= Math.max(1, amt - this.defense); this.iFrames = 60; triggerUI(); playSFX('hit');
                     if (this.hp <= 0) { this.hp = this.maxHp; this.x = TILE_SIZE*(WORLD_WIDTH/2); this.y = 0; triggerUI(); }
                 }
             },
@@ -822,7 +798,7 @@
             }
         };
 
-        // --- ENEMY CLASSES WITH SYNCED IDs AND TARGETING ---
+        // --- ENEMY CLASSES ---
         class Slime {
             constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="Slime"; this.x=x; this.y=y; this.width=24; this.height=16; this.vx=1; this.vy=0; this.jumpPower=6; this.grounded=false; this.jTimer=Math.floor(Math.random()*60); this.hp=30; this.maxHp=30; this.iFrames=0; this.isBoss=false; this.dmg=10; }
             update() {
@@ -907,11 +883,8 @@
                 let dx = target.x - this.x, dy = target.y - this.y, dist = Math.hypot(dx, dy);
                 if(dist < 600) { this.vx += (dx/dist)*0.15; this.vy += (dy/dist)*0.15; } 
                 this.vx *= 0.96; this.vy *= 0.96;
-                
-                // DEMON EYES GET STUCK ON WALLS NOW
                 let pX = this.x; this.x+=this.vx; entityCollide(this, 'x'); if(this.x === pX) this.vx *= -1;
                 let pY = this.y; this.y+=this.vy; entityCollide(this, 'y'); if(this.y === pY) this.vy *= -1;
-                
                 if(checkOverlap(this, player) && this.hp>0) { player.takeDmg(this.dmg); player.vx=(player.x>this.x)?5:-5; player.vy=-3; this.vx *= -1; this.vy *= -1; }
             }
         }
@@ -978,7 +951,6 @@
             }
         }
 
-        // Mapping for rendering objects that came over the socket network
         const ENEMY_DRAW = {
             'Slime': (e, cx, cy) => { ctx.fillStyle = e.iFrames>0 ? '#fff' : 'rgba(0,255,100,0.8)'; ctx.fillRect(Math.floor(e.x-cx), Math.floor(e.y-cy+4), e.width, e.height-4); ctx.fillRect(Math.floor(e.x-cx+4), Math.floor(e.y-cy), e.width-8, 4); },
             'Crab': (e, cx, cy) => { ctx.fillStyle = e.iFrames>0 ? '#fff' : '#c33'; ctx.fillRect(Math.floor(e.x-cx), Math.floor(e.y-cy+4), e.width, e.height-4); ctx.fillRect(Math.floor(e.x-cx-4), Math.floor(e.y-cy), 6, 8); ctx.fillRect(Math.floor(e.x-cx+e.width-2), Math.floor(e.y-cy), 6, 8); },
@@ -992,91 +964,45 @@
             'KingSlime': (e, cx, cy) => { if(e.iFrames>0 && Math.floor(Date.now()/50)%2===0) return; ctx.fillStyle = 'rgba(0,100,255,0.7)'; ctx.fillRect(Math.floor(e.x-cx), Math.floor(e.y-cy+16), e.width, e.height-16); ctx.fillRect(Math.floor(e.x-cx+16), Math.floor(e.y-cy), e.width-32, 16); ctx.fillStyle = '#ffd700'; ctx.fillRect(Math.floor(e.x-cx+32), Math.floor(e.y-cy-16), 32, 16); }
         };
 
-        let enemies = [];
-        const camera = { x: 0, y: 0, update: function() { this.x = player.x-canvas.width/2+player.width/2; this.y = player.y-canvas.height/2+player.height/2; if(this.x<0) this.x=0; if(this.y<0) this.y=0; if(this.x>WORLD_WIDTH*TILE_SIZE-canvas.width) this.x=WORLD_WIDTH*TILE_SIZE-canvas.width; if(this.y>WORLD_HEIGHT*TILE_SIZE-canvas.height) this.y=WORLD_HEIGHT*TILE_SIZE-canvas.height; }};
-
-        function checkStations() {
-            let oW = nearWorkbench, oF = nearFurnace; 
-            nearWorkbench = false; nearFurnace = false; 
-            let px = Math.floor(player.x/TILE_SIZE), py = Math.floor(player.y/TILE_SIZE);
-            for(let x=px-3; x<=px+3; x++) {
-                for(let y=py-3; y<=py+3; y++) {
-                    if(x>=0 && x<WORLD_WIDTH && y>=0 && y<WORLD_HEIGHT) {
-                        if (world[x][y] === BLOCKS.WORKBENCH) nearWorkbench = true;
-                        if (world[x][y] === BLOCKS.FURNACE) nearFurnace = true;
-                    }
-                }
-            }
-            if (oW !== nearWorkbench || oF !== nearFurnace) triggerUI();
+        function lerpColor(c1, c2, t) {
+            return `rgb(${Math.round(c1[0] + (c2[0] - c1[0]) * t)}, ${Math.round(c1[1] + (c2[1] - c1[1]) * t)}, ${Math.round(c1[2] + (c2[2] - c1[2]) * t)})`;
         }
 
-        let interactCooldown = 0;
-        function handleMouseInteraction() {
-            let tX = Math.floor((mouse.x+camera.x)/TILE_SIZE), tY = Math.floor((mouse.y+camera.y)/TILE_SIZE);
-            if(tX<0||tX>=WORLD_WIDTH||tY<0||tY>=WORLD_HEIGHT) return;
-            let pX = player.x+player.width/2, pY = player.y+player.height/2, bX = tX*TILE_SIZE+16, bY = tY*TILE_SIZE+16;
-            let actItem = inventory[activeSlot], isTool = ITEM_DATA[actItem?.id];
-            
-            // PRIORITY 1: Open Chests (Works even if holding an item)
-            if (mouse.rightDown && !mouse.prevRightDown && world[tX][tY] === BLOCKS.CHEST && Math.hypot(bX-pX, bY-pY) <= REACH) {
-                activeChestKey = `${tX},${tY}`; if(!chestData[activeChestKey]) chestData[activeChestKey] = Array.from({length: CHEST_SIZE}, () => ({id: 0, count: 0}));
-                inventoryOpen = true; $('menu-container').style.display = 'flex'; triggerUI(); return;
-            }
-
-            // Do not use tools/blocks if clicking around in inventory
-            if (inventoryOpen) { miningData.progress = 0; return; }
-
-            // Boss Spawns
-            if (mouse.rightDown && !mouse.prevRightDown && interactCooldown===0 && actItem && isHost && (!isTool || isTool.type === TOOL_TYPES.CONSUME)) {
-                if (actItem.id === ITEMS.SUS_EYE && gameTime >= 12000 && !enemies.some(e => e.isBoss)) {
-                    actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new EyeBoss(player.x, player.y - 300)); return;
-                }
-                if (actItem.id === ITEMS.SLIME_CROWN && !enemies.some(e => e.isBoss)) {
-                    actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new KingSlime(player.x, player.y - 300)); return;
-                }
-                if (actItem.id === ITEMS.SKULL_DOLL && !enemies.some(e => e.isBoss)) {
-                    actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new Skeletron(player.x, player.y - 300)); return;
+        function getSkyColors(progress) {
+            const stops = [
+                { t: 0.0, top: [20,20,40], bot: [40,40,60] },     // Midnight
+                { t: 0.2, top: [255,179,71], bot: [255,204,51] }, // Dawn
+                { t: 0.3, top: [135,206,235], bot: [224,246,255] },// Day
+                { t: 0.7, top: [135,206,235], bot: [224,246,255] },// Day
+                { t: 0.8, top: [255,126,0], bot: [255,179,71] },  // Dusk
+                { t: 0.9, top: [20,20,40], bot: [40,40,60] },     // Night
+                { t: 1.0, top: [20,20,40], bot: [40,40,60] }      // Midnight
+            ];
+            for (let i = 0; i < stops.length - 1; i++) {
+                if (progress >= stops[i].t && progress <= stops[i+1].t) {
+                    let seg = (progress - stops[i].t) / (stops[i+1].t - stops[i].t);
+                    return [lerpColor(stops[i].top, stops[i+1].top, seg), lerpColor(stops[i].bot, stops[i+1].bot, seg)];
                 }
             }
-
-            if(Math.hypot(bX-pX, bY-pY) <= REACH) {
-                // PRIORITY 2: Place Blocks
-                if(mouse.rightDown && !mouse.prevRightDown && (world[tX][tY] === 0 || world[tX][tY] === BLOCKS.WATER) && !isTool && actItem?.id>0 && actItem.count>0) {
-                    if(!checkOverlap({x:tX*TILE_SIZE,y:tY*TILE_SIZE,width:32,height:32}, player) || actItem.id===8 || actItem.id===BLOCKS.PLATFORM) { 
-                        world[tX][tY]=actItem.id; actItem.count--; if(actItem.count<=0) actItem.id=0; 
-                        if (socket.connected) socket.emit("blockUpdate", { worldId: currentRoom, x: tX, y: tY, id: world[tX][tY] });
-                        triggerUI(); checkStations(); 
-                    }
-                }
-                
-                // PRIORITY 3: Mine Blocks
-                if(player.justSwung && world[tX][tY] !== 0 && world[tX][tY] !== BLOCKS.WATER) {
-                    let tBlock = world[tX][tY], req = MINING_REQS[tBlock];
-                    if(req === 0 || (isTool && isTool.type === req)) {
-                        if(tBlock === BLOCKS.CHEST) { let key = `${tX},${tY}`; if(chestData[key] && chestData[key].some(s => s.count > 0)) { miningData.progress=0; return; } }
-                        if(miningData.x !== tX || miningData.y !== tY) { miningData.x = tX; miningData.y = tY; miningData.progress = 0; }
-                        miningData.progress += (isTool ? isTool.dmg : 1);
-                        if(miningData.progress > 15) { 
-                            if(tBlock !== BLOCKS.LEAVES) { let mined = tBlock===2?1:tBlock===13?1:tBlock; giveItem(mined, 1); }
-                            spawnParticles(tX*TILE_SIZE, tY*TILE_SIZE, getBlockColor(tBlock), 8); 
-                            world[tX][tY]=0; 
-                            if (socket.connected) {
-                                socket.emit("blockUpdate", { worldId: currentRoom, x: tX, y: tY, id: 0 });
-                                socket.emit("syncEntities", { worldId: currentRoom, isChestUpdate: true, chestData: chestData });
-                            }
-                            miningData.progress=0; checkStations();
-                        }
-                    } else miningData.progress = 0;
-                } else if (!mouse.leftDown) miningData.progress = 0;
-            } else miningData.progress = 0;
+            return [lerpColor(stops[0].top, stops[0].top, 0), lerpColor(stops[0].bot, stops[0].bot, 0)];
         }
 
         function update() {
             if (gameState !== 'PLAYING') return; 
+
+            // GLOBAL PAUSE CONSENSUS
+            let isGloballyPaused = localPaused;
+            if (multiplayerMode !== 'single') {
+                for (let id in otherPlayers) {
+                    if (!otherPlayers[id].paused) isGloballyPaused = false;
+                }
+            }
+
+            if (isGloballyPaused) return; // Completely freeze time and physics if all agree
+
             try {
                 gameTime = (gameTime+TIME_SPEED)%24000; player.update();
                 
-                // HOST-ONLY AI AND PHYSICS SYNC
                 if (isHost) {
                     let isDay = gameTime<12000;
                     let maxEnemies = isDay ? 3 : 15;
@@ -1097,11 +1023,8 @@
                     enemies.forEach(e => { 
                         e.update(); 
                         if(e.hp<=0) { 
-                            if(e.isBoss) { 
-                                giveItem(ITEMS.COPPER_BAR, 20); giveItem(ITEMS.ARROW, 50); 
-                                if(e.name==="Skeletron") giveItem(ITEMS.BONE, 30);
-                                triggerUI(); 
-                            } else {
+                            if(e.isBoss) { giveItem(ITEMS.COPPER_BAR, 20); giveItem(ITEMS.ARROW, 50); if(e.name==="Skeletron") giveItem(ITEMS.BONE, 30); triggerUI(); } 
+                            else {
                                 if (e.constructor.name === 'Slime' && Math.random()>0.3) giveItem(ITEMS.GEL,1); 
                                 if (e.constructor.name === 'DemonEye' && Math.random()>0.3) giveItem(ITEMS.LENS,1);
                                 if (e.constructor.name === 'Skeleton' && Math.random()>0.5) giveItem(ITEMS.BONE,1);
@@ -1118,13 +1041,13 @@
                         
                         let tX = Math.floor(p.x/TILE_SIZE), tY = Math.floor(p.y/TILE_SIZE);
                         let hitBlock = false;
-                        if (tX>=0 && tX<WORLD_WIDTH && tY>=0 && tY<WORLD_HEIGHT && world[tX][tY] !== 0 && world[tX][tY] !== 8 && world[tX][tY] !== 4 && world[tX][tY] !== 5 && world[tX][tY] !== 11 && world[tX][tY] !== 12 && world[tX][tY] !== 15) {
+                        if (tX>=0 && tX<WORLD_WIDTH && tY>=0 && tY<WORLD_HEIGHT && world[tX][tY] !== 0 && world[tX][tY] !== 8 && world[tX][tY] !== 4 && world[tX][tY] !== 5 && world[tX][tY] !== 11 && world[tX][tY] !== 12 && world[tX][tY] !== 15 && world[tX][tY] !== 16) {
                             if(p.type==='arrow') hitBlock = true; 
                             else if(p.type==='magic') { p.vx *= -1; p.vy *= -1; p.x+=p.vx; p.y+=p.vy; }
                         }
                         if (hitBlock) { projectiles.splice(i, 1); continue; }
                         
-                        let hit = false; for (let e of enemies) { if (p.x > e.x && p.x < e.x+e.width && p.y > e.y && p.y < e.y+e.height) { e.hp -= p.dmg; e.vx = (p.vx > 0 ? 1 : -1) * 4; e.vy = -2; e.iFrames = 10; spawnParticles(e.x, e.y, '#f00', 5); hit = true; break; } }
+                        let hit = false; for (let e of enemies) { if (p.x > e.x && p.x < e.x+e.width && p.y > e.y && p.y < e.y+e.height) { e.hp -= p.dmg; e.vx = (p.vx > 0 ? 1 : -1) * 4; e.vy = -2; e.iFrames = 10; spawnParticles(e.x, e.y, '#f00', 5); playSFX('hit'); hit = true; break; } }
                         if (hit || p.life <= 0) projectiles.splice(i, 1);
                     }
 
@@ -1132,12 +1055,9 @@
                         socket.emit("syncEntities", { worldId: currentRoom, enemies: enemies, projectiles: projectiles, chestData: chestData });
                     }
                 } else {
-                    // Clients just keep their enemies mirroring the host's synced arrays
-                    enemies = serverEnemies;
-                    projectiles = serverProjectiles;
+                    enemies = serverEnemies; projectiles = serverProjectiles;
                 }
                 
-                // Particle physics remain strictly local
                 for (let i = particles.length - 1; i >= 0; i--) { let p = particles[i]; p.vy+=0.2; p.x+=p.vx; p.y+=p.vy; p.life--; if(p.life<=0) particles.splice(i,1); }
                 
                 camera.update(); handleMouseInteraction();
@@ -1149,48 +1069,37 @@
         }
 
         function drawBackground() {
-            let isDay = gameTime < 12000;
-            let cycleProgress = (gameTime % 12000) / 12000; // 0.0 to 1.0
+            let cycleProgress = (gameTime % 24000) / 24000;
+            let skyColors = getSkyColors(cycleProgress);
             
-            // Sky Gradient
             let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-            if (isDay) {
-                if (cycleProgress < 0.1) { grad.addColorStop(0, '#ffb347'); grad.addColorStop(1, '#ffcc33'); } // Dawn
-                else if (cycleProgress > 0.9) { grad.addColorStop(0, '#ff7e00'); grad.addColorStop(1, '#ffb347'); } // Dusk
-                else { grad.addColorStop(0, '#87CEEB'); grad.addColorStop(1, '#e0f6ff'); } // Day
-            } else {
-                grad.addColorStop(0, '#050510'); grad.addColorStop(1, '#1a1a2e'); // Night
-            }
+            grad.addColorStop(0, skyColors[0]);
+            grad.addColorStop(1, skyColors[1]);
             ctx.fillStyle = grad;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Sun & Moon
-            let cx = canvas.width / 2;
-            let cy = canvas.height * 0.8;
+            // Sun / Moon arc
+            let cx = canvas.width / 2; let cy = canvas.height * 0.8;
             let radius = Math.min(canvas.width, canvas.height) * 0.7;
-            let angle = Math.PI - (cycleProgress * Math.PI); // Arcs from Right to Left
-            let sx = cx + Math.cos(angle) * radius;
-            let sy = cy - Math.sin(angle) * radius;
+            let angle = Math.PI - ((gameTime % 12000) / 12000 * Math.PI);
+            let sx = cx + Math.cos(angle) * radius; let sy = cy - Math.sin(angle) * radius;
 
-            if (isDay) {
-                ctx.fillStyle = '#FFD700'; ctx.beginPath(); ctx.arc(sx, sy, 40, 0, Math.PI*2); ctx.fill();
-            } else {
-                ctx.fillStyle = '#EEEEEE'; ctx.beginPath(); ctx.arc(sx, sy, 30, 0, Math.PI*2); ctx.fill();
-            }
+            if (gameTime < 12000) { ctx.fillStyle = '#FFD700'; ctx.beginPath(); ctx.arc(sx, sy, 40, 0, Math.PI*2); ctx.fill(); } 
+            else { ctx.fillStyle = '#EEEEEE'; ctx.beginPath(); ctx.arc(sx, sy, 30, 0, Math.PI*2); ctx.fill(); }
 
-            // Parallax Clouds
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            // Clouds
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
             let vW = canvas.width + 500;
-            for (let i = 0; i < 15; i++) {
-                let nx = ((i * 200 + gameTime * 0.02 - camera.x * 0.1) % vW + vW) % vW - 100;
-                let ny = 50 + (i % 4) * 60;
+            for (let i = 0; i < 10; i++) {
+                let nx = ((i * 300 + gameTime * 0.01 - camera.x * 0.05) % vW + vW) % vW - 100;
+                let ny = 50 + (i % 3) * 60;
                 ctx.fillRect(nx, ny, 80, 20); ctx.fillRect(nx + 10, ny - 10, 60, 20); ctx.fillRect(nx + 20, ny - 20, 40, 20);
             }
         }
 
         function draw() {
             if (gameState === 'MENU') return;
-            if (!world || world.length === 0) return; // Prevent render error while client is downloading
+            if (!world || world.length === 0) return; 
             
             drawBackground();
             
@@ -1225,45 +1134,45 @@
                     for(let y=minY; y<maxY; y++) {
                         let distSq = (x - l.tx)*(x - l.tx) + (y - l.ty)*(y - l.ty);
                         if(distSq < rSq) {
-                            let idx = (x-sC) + (y-sR)*vW, bright = l.str * (1 - Math.sqrt(distSq)/l.r);
+                            // OPTIMIZATION: removed Math.sqrt for massive FPS boost
+                            let bright = l.str * (1 - (distSq/rSq));
+                            let idx = (x-sC) + (y-sR)*vW;
                             if(bright > lightMap[idx]) lightMap[idx] = bright;
                         }
                     }
                 }
             }
 
+            let TS1 = TILE_SIZE + 1;
             for(let x=sC; x<eC; x++) {
                 for(let y=sR; y<eR; y++) {
                     let dX = Math.floor(x*TILE_SIZE-camera.x), dY = Math.floor(y*TILE_SIZE-camera.y);
-                    if (y >= worldSurface[x]) { ctx.fillStyle = y > 35 ? '#1a1a1a' : '#2a1a0a'; ctx.fillRect(dX, dY, TILE_SIZE+1, TILE_SIZE+1); }
-                    let t = world[x][y]; if (t !== 0 && SPRITES[t]) ctx.drawImage(SPRITES[t], dX, dY, TILE_SIZE+1, TILE_SIZE+1);
+                    if (y >= worldSurface[x]) { ctx.fillStyle = y > 35 ? '#1a1a1a' : '#2a1a0a'; ctx.fillRect(dX, dY, TS1, TS1); }
+                    let t = world[x][y]; if (t !== 0 && SPRITES[t]) ctx.drawImage(SPRITES[t], dX, dY, TS1, TS1);
                     if (miningData.progress > 0 && miningData.x === x && miningData.y === y) {
                         let cSp = miningData.progress > 12 ? SPRITES['CRACK_3'] : miningData.progress > 6 ? SPRITES['CRACK_2'] : SPRITES['CRACK_1'];
-                        if(cSp) ctx.drawImage(cSp, dX, dY, TILE_SIZE+1, TILE_SIZE+1);
+                        if(cSp) ctx.drawImage(cSp, dX, dY, TS1, TS1);
                     }
-                    let lightLevel = lightMap[(x-sC) + (y-sR)*vW];
-                    if (lightLevel < 1) { ctx.fillStyle = `rgba(0,0,0,${1 - lightLevel})`; ctx.fillRect(dX, dY, TILE_SIZE+1, TILE_SIZE+1); }
+                    
+                    // LAG FIX: Use precomputed string array instead of generating rgba() thousands of times
+                    let lIdx = Math.max(0, Math.min(20, Math.floor(lightMap[(x-sC) + (y-sR)*vW] * 20)));
+                    if (lIdx < 20) { ctx.fillStyle = SHADOW_COLORS[lIdx]; ctx.fillRect(dX, dY, TS1, TS1); }
                 }
             }
             
-            // DRAW LOCAL PLAYER
             player.draw(camera.x, camera.y); 
             
-            // DRAW OTHER PLAYERS IN REAL-TIME WITH THEIR EXACT ANIMATIONS AND ITEMS
             for (let id in otherPlayers) {
                 let p = otherPlayers[id];
                 if (p.x !== undefined && p.y !== undefined) {
                     drawPlayerSprite(p.x, p.y, p.equip, p.activeItem, p.dir, p.swingAnim, camera.x, camera.y);
-                    
-                    // Add a tiny nameplate dot so you know it's a teammate
                     ctx.fillStyle = '#f00'; ctx.fillRect(Math.floor(p.x-camera.x+9), Math.floor(p.y-camera.y-10), 4, 4);
                 }
             }
 
-            // DRAW ENEMIES (Handles both Host objects and Client raw JSON)
             enemies.forEach(e => {
-                if (e.draw) e.draw(camera.x, camera.y); // For Host
-                else if (ENEMY_DRAW[e.type]) ENEMY_DRAW[e.type](e, camera.x, camera.y); // For Client rendering server array
+                if (e.draw) e.draw(camera.x, camera.y); 
+                else if (ENEMY_DRAW[e.type]) ENEMY_DRAW[e.type](e, camera.x, camera.y); 
             });
 
             projectiles.forEach(p => { ctx.fillStyle = p.type==='arrow'?'#fff':'#f00'; ctx.fillRect(Math.floor(p.x-camera.x-2), Math.floor(p.y-camera.y-2), 4, 4); });
