@@ -17,8 +17,8 @@
         .btn-danger { background: #9c3a3a; border-color: #421e1e; }
         .btn-danger:hover { background: #c94a4a; }
         #health-container { position: absolute; top: 10px; right: 20px; text-align: right; }
-        #health-hearts { display: flex; flex-direction: row-reverse; gap: 2px; }
-        .heart { width: 16px; height: 16px; background-color: #ff2222; border-radius: 50%; border: 2px solid #550000; }
+        #health-hearts { display: flex; flex-direction: row-reverse; gap: 2px; flex-wrap: wrap; width: 220px; justify-content: flex-end; }
+        .heart { width: 16px; height: 16px; background-color: #ff2222; border-radius: 50%; border: 2px solid #550000; margin-bottom: 2px; }
         .heart.empty { background-color: #333; }
         #boss-bar-container { display: none; position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); width: 400px; height: 24px; background-color: #222; border: 3px solid #000; border-radius: 4px; }
         #boss-bar { width: 100%; height: 100%; background-color: #aa0000; transition: width 0.1s; }
@@ -160,11 +160,8 @@
         const db = firebase.firestore();
         const analytics = firebase.analytics();
 
-        // --- CUSTOM PLAYER SPRITE ---
-        const playerImg = new Image();
-        playerImg.src = 'vraj.png';
+        const playerImg = new Image(); playerImg.src = 'vraj.png';
 
-        // --- SOCKET.IO INIT ---
         const socket = io("https://vrajerria-github-io.onrender.com", { autoConnect: false });
         let otherPlayers = {}; let currentRoom = null; let isHost = true; let serverEnemies = []; let serverProjectiles = [];
 
@@ -203,7 +200,6 @@
 
         socket.on("spawnProjectile", (data) => { if (isHost) projectiles.push(data); });
 
-        // --- GAME VARIABLES & SETUP ---
         const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d', { alpha: false }); 
         const $ = id => document.getElementById(id); document.addEventListener('contextmenu', e => e.preventDefault());
         function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; ctx.imageSmoothingEnabled = false; } window.addEventListener('resize', resize); resize();
@@ -212,41 +208,46 @@
 
         const TILE_SIZE = 32, WORLD_WIDTH = 800, WORLD_HEIGHT = 200, GRAVITY = 0.4, TERMINAL_VELOCITY = 12, REACH = TILE_SIZE * 5;
         
-        const BLOCKS = { AIR:0, DIRT:1, GRASS:2, STONE:3, WOOD:4, LEAVES:5, WORKBENCH:6, COPPER_ORE:7, TORCH:8, CHEST:9, SAND:10, CACTUS:11, PLATFORM:12, CORRUPT_GRASS:13, CORRUPT_STONE:14, WATER:15, FURNACE:16, IRON_ORE:17, GOLD_ORE:18, WOOD_BLOCK:19, WOOD_WALL:20, IRON_ANVIL:21, DOOR_CLOSED:22, DOOR_OPEN:23, RUBY_ORE:24, SAPPHIRE_ORE:25 };
+        const BLOCKS = { AIR:0, DIRT:1, GRASS:2, STONE:3, WOOD:4, LEAVES:5, WORKBENCH:6, COPPER_ORE:7, TORCH:8, CHEST:9, SAND:10, CACTUS:11, PLATFORM:12, CORRUPT_GRASS:13, CORRUPT_STONE:14, WATER:15, FURNACE:16, IRON_ORE:17, GOLD_ORE:18, WOOD_BLOCK:19, WOOD_WALL:20, IRON_ANVIL:21, DOOR_CLOSED:22, DOOR_OPEN:23, RUBY_ORE:24, SAPPHIRE_ORE:25, DOOR_CLOSED_TOP:26, DOOR_OPEN_TOP:27, LIFE_CRYSTAL:28, CRIMTANE_ORE:29 };
         
         const ITEMS = { SWORD:100, PICKAXE:101, AXE:102, GEL:103, COPPER_BAR:104, HELMET:105, CHEST_ARMOR:106, LEGS:107, BOW:108, ARROW:109, SUS_EYE:110, HERMES_BOOTS:111, CLOUD_BOTTLE:112, RUBY_STAFF:113, SLIME_CROWN:114, LENS:115, BONE:116, SKULL_DOLL:117, IRON_BAR:118, GOLD_BAR:119, REGEN_BAND:120, IRON_SHIELD:121, BLOODY_SPINE:122, WASP_FOOD:123, POWER_CELL:124, WOOD_WALL:125,
             IRON_SWORD: 126, IRON_PICKAXE: 127, IRON_AXE: 128, IRON_HELMET: 129, IRON_CHEST: 130, IRON_LEGS: 131, IRON_BOW: 132, 
             GOLD_SWORD: 133, GOLD_PICKAXE: 134, GOLD_AXE: 135, GOLD_HELMET: 136, GOLD_CHEST: 137, GOLD_LEGS: 138, GOLD_BOW: 139, 
             RUBY: 140, SAPPHIRE: 141, GRAPPLING_HOOK: 142, RUBY_HOOK: 143, SAPPHIRE_HOOK: 144, IRON_ANVIL: 145, WOOD_DOOR: 146,
-            ZOMBIE_ARM: 147, SHIELD_OF_CTHULHU: 148, SHACKLE: 149, AGLET: 150, ANKLET: 151, FERAL_CLAWS: 152, SLIME_SWORD: 153
+            ZOMBIE_ARM: 147, SHIELD_OF_CTHULHU: 148, SHACKLE: 149, AGLET: 150, ANKLET: 151, FERAL_CLAWS: 152, SLIME_SWORD: 153, LIFE_CRYSTAL: 154, BLOOD_BUTCHERER: 155, BRAIN_OF_CONFUSION: 156, BEE_KEEPER: 157, HONEY_COMB: 158, PICKSAW: 159, SUN_STONE: 160,
+            CRIMTANE_BAR: 161, DEATHBRINGER_PICKAXE: 162, BLOOD_LUST_CLUSTER: 163, TENDON_BOW: 164, CRIMSON_HELMET: 165, CRIMSON_CHEST: 166, CRIMSON_LEGS: 167
         };
         
         const NAMES = {
-            0:"Air", 1:"Dirt", 2:"Grass", 3:"Stone", 4:"Wood", 5:"Leaves", 6:"Workbench", 7:"Copper Ore", 8:"Torch", 9:"Chest", 10:"Sand", 11:"Cactus", 12:"Wood Platform", 13:"Corrupt Grass", 14:"Corrupt Stone", 15:"Water", 16:"Furnace", 17:"Iron Ore", 18:"Gold Ore", 19:"Wood Block", 20:"Wood Wall", 21:"Iron Anvil", 22:"Door", 23:"Door", 24:"Ruby Gem", 25:"Sapphire Gem",
+            0:"Air", 1:"Dirt", 2:"Grass", 3:"Stone", 4:"Wood", 5:"Leaves", 6:"Workbench", 7:"Copper Ore", 8:"Torch", 9:"Chest", 10:"Sand", 11:"Cactus", 12:"Wood Platform", 13:"Corrupt Grass", 14:"Corrupt Stone", 15:"Water", 16:"Furnace", 17:"Iron Ore", 18:"Gold Ore", 19:"Wood Block", 20:"Wood Wall", 21:"Iron Anvil", 22:"Door", 23:"Door", 24:"Ruby Gem", 25:"Sapphire Gem", 26:"Door", 27:"Door", 28:"Life Crystal", 29:"Crimtane Ore",
             100:"Copper Sword\n8 Melee Damage", 101:"Copper Pickaxe\n4 Mining Power", 102:"Copper Axe\n3 Axe Power", 103:"Gel", 104:"Copper Bar", 105:"Copper Helmet\n+2 Defense", 106:"Copper Chainmail\n+3 Defense", 107:"Copper Greaves\n+2 Defense",
             108:"Wooden Bow\n6 Ranged Damage", 109:"Arrow", 110:"Suspicious Eye\nSummons the Eye of Terror", 111:"Hermes Boots\nEquip to run super fast", 112:"Cloud in a Bottle\nEquip to double jump", 113:"Ruby Staff\n12 Magic Damage", 114:"Slime Crown\nSummons King Slime",
             115:"Lens", 116:"Bone", 117:"Cursed Doll\nSummons Skeletron", 118:"Iron Bar", 119:"Gold Bar", 120:"Band of Regeneration\nSlowly regenerates life", 121:"Iron Shield\n+4 Defense", 122:"Bloody Spine\nSummons Brain of Terror", 123:"Wasp Food\nSummons Queen Wasp", 124:"Power Cell\nSummons Ancient Golem", 125:"Wood Wall\nBackground wall",
             126:"Iron Sword\n12 Melee Damage", 127:"Iron Pickaxe\n8 Mining Power", 128:"Iron Axe\n6 Axe Power", 129:"Iron Helmet\n+3 Defense", 130:"Iron Chainmail\n+4 Defense", 131:"Iron Greaves\n+3 Defense", 132:"Iron Bow\n10 Ranged Damage",
             133:"Gold Sword\n16 Melee Damage", 134:"Gold Pickaxe\n12 Mining Power", 135:"Gold Axe\n9 Axe Power", 136:"Gold Helmet\n+4 Defense", 137:"Gold Chainmail\n+5 Defense", 138:"Gold Greaves\n+4 Defense", 139:"Gold Bow\n14 Ranged Damage",
             140:"Ruby", 141:"Sapphire", 142:"Grappling Hook\nEquip in Hook Slot\nPress F to fire", 143:"Ruby Hook\nEquip in Hook Slot\nLonger Range", 144:"Sapphire Hook\nEquip in Hook Slot\nLonger Range", 145:"Iron Anvil\nUsed to forge metal", 146:"Wood Door",
-            147:"Zombie Arm\n12 Melee Damage\nSlaps hard", 148:"Shield of Cthulhu\n+2 Defense\nDouble tap A or D to dash", 149:"Shackle\n+1 Defense", 150:"Aglet\nIncreases movement speed", 151:"Anklet of the Wind\nIncreases jump height", 152:"Feral Claws\nIncreases melee speed", 153:"Slime Sword\n15 Melee Damage"
+            147:"Zombie Arm\n12 Melee Damage\nSlaps hard", 148:"Shield of Cthulhu\n+2 Defense\nDouble tap A or D to dash", 149:"Shackle\n+1 Defense", 150:"Aglet\nIncreases movement speed", 151:"Anklet of the Wind\nIncreases jump height", 152:"Feral Claws\nIncreases melee speed", 153:"Slime Sword\n15 Melee Damage", 
+            154:"Life Crystal\nPermanently increases max health by 20", 155:"Blood Butcherer\n22 Melee Damage", 156:"Brain of Confusion\n+5 Defense, Increased Speed", 157:"Bee Keeper\n26 Melee Damage\nSuper Fast", 158:"Honey Comb\n+2 Defense, Increased Regen", 159:"Picksaw\n25 Mining Power", 160:"Sun Stone\n+4 Defense, Massive Stats",
+            161:"Crimtane Bar", 162:"Deathbringer Pickaxe\n15 Mining Power", 163:"Blood Lust Cluster\n14 Axe Power", 164:"Tendon Bow\n18 Ranged Damage", 165:"Crimson Helmet\n+5 Defense", 166:"Crimson Scalemail\n+6 Defense", 167:"Crimson Greaves\n+5 Defense"
         };
         const TOOL_TYPES = { NONE:0, PICKAXE:1, AXE:2, SWORD:3, BOW:4, CONSUME:5, MAGIC:6 };
         const ITEM_DATA = {
             [ITEMS.SWORD]: {type:3, dmg:8, use:25, max:1}, [ITEMS.PICKAXE]: {type:1, dmg:4, use:20, max:1}, [ITEMS.AXE]: {type:2, dmg:3, use:25, max:1}, [ITEMS.BOW]: {type:4, dmg:6, use:30, max:1}, [ITEMS.RUBY_STAFF]: {type:6, dmg:12, use:35, max:1},
             [ITEMS.IRON_SWORD]: {type:3, dmg:12, use:22, max:1}, [ITEMS.IRON_PICKAXE]: {type:1, dmg:8, use:18, max:1}, [ITEMS.IRON_AXE]: {type:2, dmg:6, use:22, max:1}, [ITEMS.IRON_BOW]: {type:4, dmg:10, use:28, max:1},
             [ITEMS.GOLD_SWORD]: {type:3, dmg:16, use:20, max:1}, [ITEMS.GOLD_PICKAXE]: {type:1, dmg:12, use:15, max:1}, [ITEMS.GOLD_AXE]: {type:2, dmg:9, use:20, max:1}, [ITEMS.GOLD_BOW]: {type:4, dmg:14, use:25, max:1},
-            [ITEMS.ZOMBIE_ARM]: {type:3, dmg:12, use:25, max:1}, [ITEMS.SLIME_SWORD]: {type:3, dmg:15, use:22, max:1},
+            [ITEMS.ZOMBIE_ARM]: {type:3, dmg:12, use:25, max:1}, [ITEMS.SLIME_SWORD]: {type:3, dmg:15, use:22, max:1}, [ITEMS.BLOOD_BUTCHERER]: {type:3, dmg:22, use:20, max:1}, [ITEMS.BEE_KEEPER]: {type:3, dmg:26, use:15, max:1}, [ITEMS.PICKSAW]: {type:1, dmg:25, use:12, max:1},
+            [ITEMS.DEATHBRINGER_PICKAXE]: {type:1, dmg:15, use:12, max:1}, [ITEMS.BLOOD_LUST_CLUSTER]: {type:2, dmg:14, use:15, max:1}, [ITEMS.TENDON_BOW]: {type:4, dmg:18, use:22, max:1},
             [ITEMS.HELMET]: {eq:0, def:2, max:1}, [ITEMS.CHEST_ARMOR]: {eq:1, def:3, max:1}, [ITEMS.LEGS]: {eq:2, def:2, max:1}, 
             [ITEMS.IRON_HELMET]: {eq:0, def:3, max:1}, [ITEMS.IRON_CHEST]: {eq:1, def:4, max:1}, [ITEMS.IRON_LEGS]: {eq:2, def:3, max:1}, 
             [ITEMS.GOLD_HELMET]: {eq:0, def:4, max:1}, [ITEMS.GOLD_CHEST]: {eq:1, def:5, max:1}, [ITEMS.GOLD_LEGS]: {eq:2, def:4, max:1}, 
+            [ITEMS.CRIMSON_HELMET]: {eq:0, def:5, max:1}, [ITEMS.CRIMSON_CHEST]: {eq:1, def:6, max:1}, [ITEMS.CRIMSON_LEGS]: {eq:2, def:5, max:1}, 
             [ITEMS.HERMES_BOOTS]: {eq:'acc', def:0, max:1}, [ITEMS.CLOUD_BOTTLE]: {eq:'acc', def:0, max:1}, [ITEMS.REGEN_BAND]: {eq:'acc', def:0, max:1}, [ITEMS.IRON_SHIELD]: {eq:'acc', def:4, max:1},
-            [ITEMS.SHIELD_OF_CTHULHU]: {eq:'acc', def:2, max:1}, [ITEMS.SHACKLE]: {eq:'acc', def:1, max:1}, [ITEMS.AGLET]: {eq:'acc', def:0, max:1}, [ITEMS.ANKLET]: {eq:'acc', def:0, max:1}, [ITEMS.FERAL_CLAWS]: {eq:'acc', def:0, max:1},
+            [ITEMS.SHIELD_OF_CTHULHU]: {eq:'acc', def:2, max:1}, [ITEMS.SHACKLE]: {eq:'acc', def:1, max:1}, [ITEMS.AGLET]: {eq:'acc', def:0, max:1}, [ITEMS.ANKLET]: {eq:'acc', def:0, max:1}, [ITEMS.FERAL_CLAWS]: {eq:'acc', def:0, max:1}, [ITEMS.BRAIN_OF_CONFUSION]: {eq:'acc', def:5, max:1}, [ITEMS.HONEY_COMB]: {eq:'acc', def:2, max:1}, [ITEMS.SUN_STONE]: {eq:'acc', def:4, max:1},
             [ITEMS.GRAPPLING_HOOK]: {eq:8, max:1, reach:300}, [ITEMS.RUBY_HOOK]: {eq:8, max:1, reach:450}, [ITEMS.SAPPHIRE_HOOK]: {eq:8, max:1, reach:450},
-            [ITEMS.SUS_EYE]: {type:5, use:30, max:1}, [ITEMS.SLIME_CROWN]: {type:5, use:30, max:1}, [ITEMS.SKULL_DOLL]: {type:5, use:30, max:1}, [ITEMS.BLOODY_SPINE]: {type:5, use:30, max:1}, [ITEMS.WASP_FOOD]: {type:5, use:30, max:1}, [ITEMS.POWER_CELL]: {type:5, use:30, max:1}, 
-            [ITEMS.LENS]: {max:99}, [ITEMS.BONE]: {max:99}, [ITEMS.WOOD_WALL]: {max:99}, [ITEMS.IRON_ANVIL]: {max:99}, [ITEMS.WOOD_DOOR]: {max:99}
+            [ITEMS.SUS_EYE]: {type:5, use:30, max:1}, [ITEMS.SLIME_CROWN]: {type:5, use:30, max:1}, [ITEMS.SKULL_DOLL]: {type:5, use:30, max:1}, [ITEMS.BLOODY_SPINE]: {type:5, use:30, max:1}, [ITEMS.WASP_FOOD]: {type:5, use:30, max:1}, [ITEMS.POWER_CELL]: {type:5, use:30, max:1}, [ITEMS.LIFE_CRYSTAL]: {type:5, use:30, max:99},
+            [ITEMS.LENS]: {max:99}, [ITEMS.BONE]: {max:99}, [ITEMS.WOOD_WALL]: {max:99}, [ITEMS.IRON_ANVIL]: {max:99}, [ITEMS.WOOD_DOOR]: {max:99}, [ITEMS.CRIMTANE_BAR]: {max:99}
         };
-        const MINING_REQS = { [BLOCKS.DIRT]:1, [BLOCKS.GRASS]:1, [BLOCKS.STONE]:1, [BLOCKS.COPPER_ORE]:1, [BLOCKS.IRON_ORE]:1, [BLOCKS.GOLD_ORE]:1, [BLOCKS.RUBY_ORE]:1, [BLOCKS.SAPPHIRE_ORE]:1, [BLOCKS.SAND]:1, [BLOCKS.CORRUPT_GRASS]:1, [BLOCKS.CORRUPT_STONE]:1, [BLOCKS.WOOD]:2, [BLOCKS.WOOD_BLOCK]:2, [BLOCKS.WOOD_WALL]:2, [BLOCKS.LEAVES]:2, [BLOCKS.CACTUS]:2, [BLOCKS.WORKBENCH]:2, [BLOCKS.IRON_ANVIL]:2, [BLOCKS.DOOR_CLOSED]:2, [BLOCKS.DOOR_OPEN]:2, [BLOCKS.TORCH]:0, [BLOCKS.CHEST]:2, [BLOCKS.PLATFORM]:2, [BLOCKS.FURNACE]:1 };
+        const MINING_REQS = { [BLOCKS.DIRT]:1, [BLOCKS.GRASS]:1, [BLOCKS.STONE]:1, [BLOCKS.COPPER_ORE]:1, [BLOCKS.IRON_ORE]:1, [BLOCKS.GOLD_ORE]:1, [BLOCKS.RUBY_ORE]:1, [BLOCKS.SAPPHIRE_ORE]:1, [BLOCKS.CRIMTANE_ORE]:1, [BLOCKS.SAND]:1, [BLOCKS.CORRUPT_GRASS]:1, [BLOCKS.CORRUPT_STONE]:1, [BLOCKS.WOOD]:2, [BLOCKS.WOOD_BLOCK]:2, [BLOCKS.WOOD_WALL]:2, [BLOCKS.LEAVES]:2, [BLOCKS.CACTUS]:2, [BLOCKS.WORKBENCH]:2, [BLOCKS.IRON_ANVIL]:2, [BLOCKS.DOOR_CLOSED]:2, [BLOCKS.DOOR_OPEN]:2, [BLOCKS.DOOR_CLOSED_TOP]:2, [BLOCKS.DOOR_OPEN_TOP]:2, [BLOCKS.TORCH]:0, [BLOCKS.CHEST]:2, [BLOCKS.PLATFORM]:2, [BLOCKS.FURNACE]:1, [BLOCKS.LIFE_CRYSTAL]:1 };
 
         // --- PROCEDURAL SPRITES ---
         const SPRITES = {};
@@ -260,6 +261,7 @@
             gen(BLOCKS.COPPER_ORE, c => { c.drawImage(SPRITES[BLOCKS.STONE],0,0); c.fillStyle='#d2691e'; for(let i=0;i<8;i++) c.fillRect(Math.floor(Math.random()*8)*4,Math.floor(Math.random()*8)*4,4,4); });
             gen(BLOCKS.IRON_ORE, c => { c.drawImage(SPRITES[BLOCKS.STONE],0,0); c.fillStyle='#b0a5a0'; for(let i=0;i<8;i++) c.fillRect(Math.floor(Math.random()*8)*4,Math.floor(Math.random()*8)*4,4,4); });
             gen(BLOCKS.GOLD_ORE, c => { c.drawImage(SPRITES[BLOCKS.STONE],0,0); c.fillStyle='#ffd700'; for(let i=0;i<8;i++) c.fillRect(Math.floor(Math.random()*8)*4,Math.floor(Math.random()*8)*4,4,4); });
+            gen(BLOCKS.CRIMTANE_ORE, c => { c.drawImage(SPRITES[BLOCKS.STONE],0,0); c.fillStyle='#a00'; for(let i=0;i<8;i++) c.fillRect(Math.floor(Math.random()*8)*4,Math.floor(Math.random()*8)*4,4,4); c.fillStyle='#000'; for(let i=0;i<4;i++) c.fillRect(Math.floor(Math.random()*8)*4,Math.floor(Math.random()*8)*4,2,2); });
             gen(BLOCKS.RUBY_ORE, c => { c.drawImage(SPRITES[BLOCKS.STONE],0,0); c.fillStyle='#f00'; for(let i=0;i<6;i++) c.fillRect(Math.floor(Math.random()*8)*4,Math.floor(Math.random()*8)*4,4,4); });
             gen(BLOCKS.SAPPHIRE_ORE, c => { c.drawImage(SPRITES[BLOCKS.STONE],0,0); c.fillStyle='#00f'; for(let i=0;i<6;i++) c.fillRect(Math.floor(Math.random()*8)*4,Math.floor(Math.random()*8)*4,4,4); });
             gen(BLOCKS.WOOD, c => { c.fillStyle='#4a3018'; c.fillRect(0,0,32,32); c.fillStyle='#3a2008'; for(let i=0;i<4;i++) c.fillRect(i*8,0,2,32); });
@@ -275,8 +277,12 @@
             gen(BLOCKS.PLATFORM, c => { c.fillStyle='#8b4513'; c.fillRect(0,0,32,8); c.fillStyle='#000'; c.fillRect(0,8,32,2); });
             gen(BLOCKS.FURNACE, c => { c.fillStyle='#555'; c.fillRect(2, 4, 28, 28); c.fillStyle='#222'; c.fillRect(8, 12, 16, 16); c.fillStyle='#f50'; c.fillRect(10, 18, 12, 10); c.fillStyle='#fa0'; c.fillRect(12, 22, 8, 6); });
             gen(BLOCKS.WATER, c => { c.fillStyle='rgba(0,100,200,0.5)'; c.fillRect(0,0,32,32); c.fillStyle='rgba(255,255,255,0.2)'; c.fillRect(0,4,32,2); });
-            gen(BLOCKS.DOOR_CLOSED, c => { c.fillStyle='#5c3a21'; c.fillRect(12,0,8,32); c.fillStyle='#221100'; c.fillRect(18,14,2,4); });
-            gen(BLOCKS.DOOR_OPEN, c => { c.fillStyle='#5c3a21'; c.fillRect(0,0,8,32); c.fillStyle='#221100'; c.fillRect(6,14,2,4); }); 
+            gen(BLOCKS.LIFE_CRYSTAL, c => { c.fillStyle='#e22'; c.beginPath(); c.arc(11,12,6,Math.PI,0); c.arc(21,12,6,Math.PI,0); c.lineTo(16,26); c.fill(); c.fillStyle='#f88'; c.beginPath(); c.arc(10,10,3,Math.PI,0); c.fill(); });
+            
+            gen(BLOCKS.DOOR_CLOSED, c => { c.fillStyle='#5c3a21'; c.fillRect(12,0,8,32); c.fillStyle='#3a2008'; c.strokeRect(12,2,8,28); });
+            gen(BLOCKS.DOOR_CLOSED_TOP, c => { c.fillStyle='#5c3a21'; c.fillRect(12,0,8,32); c.fillStyle='#221100'; c.fillRect(16,22,4,4); c.fillStyle='#3a2008'; c.strokeRect(12,2,8,28); });
+            gen(BLOCKS.DOOR_OPEN, c => { c.fillStyle='#5c3a21'; c.fillRect(0,0,8,32); }); 
+            gen(BLOCKS.DOOR_OPEN_TOP, c => { c.fillStyle='#5c3a21'; c.fillRect(0,0,8,32); });
             
             gen(ITEMS.SWORD, c => { c.fillStyle='#b87333'; c.fillRect(16,0,4,20); c.fillStyle='#654321'; c.fillRect(12,20,12,4); c.fillRect(16,24,4,8); });
             gen(ITEMS.PICKAXE, c => { c.fillStyle='#b87333'; c.fillRect(4,4,24,8); c.fillStyle='#654321'; c.fillRect(14,12,4,20); });
@@ -293,13 +299,24 @@
             gen(ITEMS.GOLD_AXE, c => { c.fillStyle='#ffd700'; c.fillRect(16,4,12,12); c.fillStyle='#654321'; c.fillRect(12,4,4,28); });
             gen(ITEMS.GOLD_BOW, c => { c.strokeStyle='#ffd700'; c.lineWidth=4; c.beginPath(); c.arc(16,16,12,Math.PI/2,Math.PI*1.5); c.stroke(); c.strokeStyle='#fff'; c.lineWidth=1; c.beginPath(); c.moveTo(16,4); c.lineTo(16,28); c.stroke(); });
 
+            gen(ITEMS.DEATHBRINGER_PICKAXE, c => { c.fillStyle='#a00'; c.fillRect(4,4,24,8); c.fillStyle='#654321'; c.fillRect(14,12,4,20); });
+            gen(ITEMS.BLOOD_LUST_CLUSTER, c => { c.fillStyle='#a00'; c.fillRect(16,4,12,12); c.fillStyle='#654321'; c.fillRect(12,4,4,28); });
+            gen(ITEMS.TENDON_BOW, c => { c.strokeStyle='#a00'; c.lineWidth=4; c.beginPath(); c.arc(16,16,12,Math.PI/2,Math.PI*1.5); c.stroke(); c.strokeStyle='#fff'; c.lineWidth=1; c.beginPath(); c.moveTo(16,4); c.lineTo(16,28); c.stroke(); });
+
             gen(ITEMS.ZOMBIE_ARM, c => { c.fillStyle='#2e8b57'; c.fillRect(14,4,6,24); c.fillStyle='#6a0dad'; c.fillRect(12,24,10,6); });
             gen(ITEMS.SLIME_SWORD, c => { c.fillStyle='rgba(0,255,100,0.8)'; c.fillRect(16,0,4,20); c.fillStyle='#333'; c.fillRect(12,20,12,4); c.fillRect(16,24,4,8); });
+            gen(ITEMS.BLOOD_BUTCHERER, c => { c.fillStyle='#c22'; c.fillRect(14,0,8,20); c.fillStyle='#111'; c.fillRect(10,20,16,4); c.fillRect(16,24,4,8); });
+            gen(ITEMS.BEE_KEEPER, c => { c.fillStyle='#ee0'; c.fillRect(16,0,4,20); c.fillStyle='#000'; c.fillRect(12,20,12,4); c.fillRect(16,24,4,8); });
+            gen(ITEMS.PICKSAW, c => { c.fillStyle='#d80'; c.fillRect(4,4,24,8); c.fillStyle='#630'; c.fillRect(14,12,4,20); c.fillStyle='#a40'; c.fillRect(24,8,4,8); });
+
             gen(ITEMS.SHIELD_OF_CTHULHU, c => { c.fillStyle='#a22'; c.beginPath(); c.moveTo(8,8); c.lineTo(24,8); c.lineTo(24,20); c.lineTo(16,28); c.lineTo(8,20); c.fill(); c.fillStyle='#fff'; c.beginPath(); c.arc(16,16,4,0,Math.PI*2); c.fill(); c.fillStyle='#000'; c.beginPath(); c.arc(16,16,2,0,Math.PI*2); c.fill(); });
             gen(ITEMS.SHACKLE, c => { c.strokeStyle='#888'; c.lineWidth=3; c.beginPath(); c.arc(16,16,8,0,Math.PI*2); c.stroke(); c.fillRect(24,14,6,4); });
             gen(ITEMS.AGLET, c => { c.fillStyle='#8b4513'; c.fillRect(12,12,8,12); c.fillStyle='#aaa'; c.fillRect(12,20,8,4); });
             gen(ITEMS.ANKLET, c => { c.strokeStyle='#2e8b57'; c.lineWidth=4; c.beginPath(); c.arc(16,16,10,0,Math.PI*2); c.stroke(); c.fillStyle='#ffea00'; c.fillRect(14,4,4,4); });
             gen(ITEMS.FERAL_CLAWS, c => { c.fillStyle='#2e8b57'; c.fillRect(8,12,16,16); c.fillStyle='#fff'; c.fillRect(8,4,2,8); c.fillRect(14,2,2,10); c.fillRect(20,4,2,8); });
+            gen(ITEMS.BRAIN_OF_CONFUSION, c => { c.fillStyle='#f66'; c.beginPath(); c.arc(16,16,10,0,Math.PI*2); c.fill(); c.fillStyle='#a22'; c.beginPath(); c.arc(16,16,6,0,Math.PI*2); c.fill(); });
+            gen(ITEMS.HONEY_COMB, c => { c.fillStyle='#f90'; c.beginPath(); c.moveTo(16,4); c.lineTo(26,10); c.lineTo(26,22); c.lineTo(16,28); c.lineTo(6,22); c.lineTo(6,10); c.fill(); c.strokeStyle='#c70'; c.lineWidth=2; c.stroke(); });
+            gen(ITEMS.SUN_STONE, c => { c.fillStyle='#fa0'; c.beginPath(); c.arc(16,16,12,0,Math.PI*2); c.fill(); c.fillStyle='#ff0'; c.beginPath(); c.arc(16,16,8,0,Math.PI*2); c.fill(); });
 
             gen(ITEMS.RUBY_STAFF, c => { c.fillStyle='#654321'; c.fillRect(14,6,4,26); c.fillStyle='#f00'; c.fillRect(12,0,8,8); });
             gen(ITEMS.ARROW, c => { c.fillStyle='#fff'; c.fillRect(14,0,4,4); c.fillStyle='#654321'; c.fillRect(15,4,2,24); c.fillStyle='#fff'; c.fillRect(14,28,4,4); });
@@ -307,6 +324,7 @@
             gen(ITEMS.COPPER_BAR, c => { c.fillStyle='#b87333'; c.fillRect(6,16,20,10); });
             gen(ITEMS.IRON_BAR, c => { c.fillStyle='#b0a5a0'; c.fillRect(6,16,20,10); });
             gen(ITEMS.GOLD_BAR, c => { c.fillStyle='#ffd700'; c.fillRect(6,16,20,10); });
+            gen(ITEMS.CRIMTANE_BAR, c => { c.fillStyle='#a00'; c.fillRect(6,16,20,10); c.fillStyle='#500'; c.fillRect(8,18,16,6); });
             
             gen(ITEMS.RUBY, c => { c.fillStyle='#f00'; c.beginPath(); c.moveTo(16,4); c.lineTo(24,16); c.lineTo(16,28); c.lineTo(8,16); c.fill(); });
             gen(ITEMS.SAPPHIRE, c => { c.fillStyle='#00f'; c.beginPath(); c.moveTo(16,4); c.lineTo(24,16); c.lineTo(16,28); c.lineTo(8,16); c.fill(); });
@@ -323,6 +341,9 @@
             gen(ITEMS.GOLD_HELMET, c => { c.fillStyle='#ffd700'; c.fillRect(6,6,20,16); c.clearRect(10,14,12,8); });
             gen(ITEMS.GOLD_CHEST, c => { c.fillStyle='#ffd700'; c.fillRect(8,4,16,24); c.fillRect(4,8,4,8); c.fillRect(24,8,4,8); });
             gen(ITEMS.GOLD_LEGS, c => { c.fillStyle='#ffd700'; c.fillRect(10,4,12,4); c.fillRect(10,8,4,20); c.fillRect(18,8,4,20); });
+            gen(ITEMS.CRIMSON_HELMET, c => { c.fillStyle='#800000'; c.fillRect(6,6,20,16); c.clearRect(10,14,12,8); });
+            gen(ITEMS.CRIMSON_CHEST, c => { c.fillStyle='#800000'; c.fillRect(8,4,16,24); c.fillRect(4,8,4,8); c.fillRect(24,8,4,8); });
+            gen(ITEMS.CRIMSON_LEGS, c => { c.fillStyle='#800000'; c.fillRect(10,4,12,4); c.fillRect(10,8,4,20); c.fillRect(18,8,4,20); });
 
             gen(ITEMS.SUS_EYE, c => { c.fillStyle='#fff'; c.beginPath(); c.arc(16,16,10,0,Math.PI*2); c.fill(); c.fillStyle='#f00'; c.beginPath(); c.arc(16,16,4,0,Math.PI*2); c.fill(); });
             gen(ITEMS.SLIME_CROWN, c => { c.fillStyle='#ffd700'; c.fillRect(6,16,20,8); c.fillStyle='rgba(0,255,100,0.8)'; c.fillRect(10,8,12,8); });
@@ -335,6 +356,7 @@
             gen(ITEMS.WOOD_WALL, c => { c.drawImage(SPRITES[BLOCKS.WOOD_WALL],0,0); });
             gen(ITEMS.IRON_ANVIL, c => { c.drawImage(SPRITES[BLOCKS.IRON_ANVIL],0,0); });
             gen(ITEMS.WOOD_DOOR, c => { c.drawImage(SPRITES[BLOCKS.DOOR_CLOSED],0,0); });
+            gen(ITEMS.LIFE_CRYSTAL, c => { c.drawImage(SPRITES[BLOCKS.LIFE_CRYSTAL],0,0); });
             
             gen(ITEMS.REGEN_BAND, c => { c.strokeStyle='#f00'; c.lineWidth=3; c.beginPath(); c.arc(16,16,10,0,Math.PI*2); c.stroke(); });
             gen(ITEMS.IRON_SHIELD, c => { c.fillStyle='#b0a5a0'; c.beginPath(); c.moveTo(8,8); c.lineTo(24,8); c.lineTo(24,20); c.lineTo(16,28); c.lineTo(8,20); c.fill(); });
@@ -348,7 +370,7 @@
 
         let particles = [];
         function spawnParticles(x, y, color, count) { for(let i=0; i<count; i++) particles.push({ x: x+16, y: y+16, vx: (Math.random()-0.5)*6, vy: (Math.random()-0.5)*6 - 2, life: 30+Math.random()*20, color }); }
-        function getBlockColor(id) { const c = { [BLOCKS.DIRT]:'#5c4033', [BLOCKS.GRASS]:'#41980a', [BLOCKS.STONE]:'#606060', [BLOCKS.WOOD]:'#4a3018', [BLOCKS.WOOD_BLOCK]:'#5c3a21', [BLOCKS.LEAVES]:'#1e7b1e', [BLOCKS.SAND]:'#eedd82', [BLOCKS.CACTUS]:'#2e8b57', [BLOCKS.COPPER_ORE]:'#d2691e', [BLOCKS.IRON_ORE]:'#b0a5a0', [BLOCKS.GOLD_ORE]:'#ffd700', [BLOCKS.RUBY_ORE]:'#f00', [BLOCKS.SAPPHIRE_ORE]:'#00f', [BLOCKS.CHEST]:'#8b4513', [BLOCKS.CORRUPT_GRASS]:'#6a0dad', [BLOCKS.CORRUPT_STONE]:'#3a205a', [BLOCKS.FURNACE]:'#555' }; return c[id] || '#fff'; }
+        function getBlockColor(id) { const c = { [BLOCKS.DIRT]:'#5c4033', [BLOCKS.GRASS]:'#41980a', [BLOCKS.STONE]:'#606060', [BLOCKS.WOOD]:'#4a3018', [BLOCKS.WOOD_BLOCK]:'#5c3a21', [BLOCKS.LEAVES]:'#1e7b1e', [BLOCKS.SAND]:'#eedd82', [BLOCKS.CACTUS]:'#2e8b57', [BLOCKS.COPPER_ORE]:'#d2691e', [BLOCKS.IRON_ORE]:'#b0a5a0', [BLOCKS.GOLD_ORE]:'#ffd700', [BLOCKS.CRIMTANE_ORE]:'#a00', [BLOCKS.RUBY_ORE]:'#f00', [BLOCKS.SAPPHIRE_ORE]:'#00f', [BLOCKS.CHEST]:'#8b4513', [BLOCKS.CORRUPT_GRASS]:'#6a0dad', [BLOCKS.CORRUPT_STONE]:'#3a205a', [BLOCKS.FURNACE]:'#555', [BLOCKS.LIFE_CRYSTAL]:'#f22' }; return c[id] || '#fff'; }
 
         // --- SYSTEM STATES ---
         let gameTime = 6000; const TIME_SPEED = 2; let needsUIUpdate = true;
@@ -362,7 +384,7 @@
             equipment = Array.from({length: 9}, () => ({id: 0, count: 0})); 
             inventory[0] = { id: ITEMS.SWORD, count: 1 }; inventory[1] = { id: ITEMS.PICKAXE, count: 1 }; inventory[2] = { id: ITEMS.AXE, count: 1 };
             inventory[3] = { id: ITEMS.BOW, count: 1 }; inventory[4] = { id: ITEMS.ARROW, count: 100 }; inventory[5] = { id: BLOCKS.WOOD, count: 99 };
-            player.hp = 100; player.x = TILE_SIZE*(WORLD_WIDTH/2); player.y = 0;
+            player.hp = 100; player.maxHp = 100; player.x = TILE_SIZE*(WORLD_WIDTH/2); player.y = 0;
             player.lastX = 0; player.lastY = 0; player.lastDir = 1;
             chestData = {}; world = []; worldSurface = []; bgWorld = [];
             gameTime = 6000; enemies = []; projectiles = []; particles = [];
@@ -385,6 +407,7 @@
             { name: "Copper Bar", result: ITEMS.COPPER_BAR, count: 1, req: [{ id: BLOCKS.COPPER_ORE, amount: 3 }], station: BLOCKS.FURNACE },
             { name: "Iron Bar", result: ITEMS.IRON_BAR, count: 1, req: [{ id: BLOCKS.IRON_ORE, amount: 3 }], station: BLOCKS.FURNACE },
             { name: "Gold Bar", result: ITEMS.GOLD_BAR, count: 1, req: [{ id: BLOCKS.GOLD_ORE, amount: 3 }], station: BLOCKS.FURNACE },
+            { name: "Crimtane Bar", result: ITEMS.CRIMTANE_BAR, count: 1, req: [{ id: BLOCKS.CRIMTANE_ORE, amount: 3 }], station: BLOCKS.FURNACE },
             
             { name: "Copper Helmet", result: ITEMS.HELMET, count: 1, req: [{ id: ITEMS.COPPER_BAR, amount: 3 }], station: BLOCKS.IRON_ANVIL },
             { name: "Copper Chainmail", result: ITEMS.CHEST_ARMOR, count: 1, req: [{ id: ITEMS.COPPER_BAR, amount: 5 }], station: BLOCKS.IRON_ANVIL },
@@ -405,6 +428,14 @@
             { name: "Gold Helmet", result: ITEMS.GOLD_HELMET, count: 1, req: [{ id: ITEMS.GOLD_BAR, amount: 10 }], station: BLOCKS.IRON_ANVIL },
             { name: "Gold Chainmail", result: ITEMS.GOLD_CHEST, count: 1, req: [{ id: ITEMS.GOLD_BAR, amount: 15 }], station: BLOCKS.IRON_ANVIL },
             { name: "Gold Greaves", result: ITEMS.GOLD_LEGS, count: 1, req: [{ id: ITEMS.GOLD_BAR, amount: 12 }], station: BLOCKS.IRON_ANVIL },
+
+            { name: "Blood Butcherer", result: ITEMS.BLOOD_BUTCHERER, count: 1, req: [{ id: ITEMS.CRIMTANE_BAR, amount: 10 }], station: BLOCKS.IRON_ANVIL },
+            { name: "Deathbringer Pickaxe", result: ITEMS.DEATHBRINGER_PICKAXE, count: 1, req: [{ id: ITEMS.CRIMTANE_BAR, amount: 12 }, { id: BLOCKS.WOOD, amount: 4 }], station: BLOCKS.IRON_ANVIL },
+            { name: "Blood Lust Cluster", result: ITEMS.BLOOD_LUST_CLUSTER, count: 1, req: [{ id: ITEMS.CRIMTANE_BAR, amount: 10 }, { id: BLOCKS.WOOD, amount: 3 }], station: BLOCKS.IRON_ANVIL },
+            { name: "Tendon Bow", result: ITEMS.TENDON_BOW, count: 1, req: [{ id: ITEMS.CRIMTANE_BAR, amount: 8 }], station: BLOCKS.IRON_ANVIL },
+            { name: "Crimson Helmet", result: ITEMS.CRIMSON_HELMET, count: 1, req: [{ id: ITEMS.CRIMTANE_BAR, amount: 15 }], station: BLOCKS.IRON_ANVIL },
+            { name: "Crimson Scalemail", result: ITEMS.CRIMSON_CHEST, count: 1, req: [{ id: ITEMS.CRIMTANE_BAR, amount: 25 }], station: BLOCKS.IRON_ANVIL },
+            { name: "Crimson Greaves", result: ITEMS.CRIMSON_LEGS, count: 1, req: [{ id: ITEMS.CRIMTANE_BAR, amount: 20 }], station: BLOCKS.IRON_ANVIL },
             
             { name: "Grappling Hook", result: ITEMS.GRAPPLING_HOOK, count: 1, req: [{ id: ITEMS.IRON_BAR, amount: 3 }, { id: ITEMS.BONE, amount: 1 }], station: BLOCKS.IRON_ANVIL },
             { name: "Ruby Hook", result: ITEMS.RUBY_HOOK, count: 1, req: [{ id: ITEMS.RUBY, amount: 15 }], station: BLOCKS.IRON_ANVIL },
@@ -428,13 +459,10 @@
 
         // --- MENU LOGIC & SAVING ---
         function renderWorldSlots(mode) {
-            multiplayerMode = mode;
-            let container = $('world-slots-container');
-            container.innerHTML = '';
+            multiplayerMode = mode; let container = $('world-slots-container'); container.innerHTML = '';
             for (let i = 1; i <= 3; i++) {
                 let s = localStorage.getItem('sandboxSave_slot' + i);
-                let slotDiv = document.createElement('div');
-                slotDiv.className = 'world-slot';
+                let slotDiv = document.createElement('div'); slotDiv.className = 'world-slot';
                 if (s) {
                     let d = JSON.parse(s);
                     slotDiv.innerHTML = `<div><div class="slot-title">World ${i}</div><div class="slot-info">Time: ${d.time} | Health: ${d.hp}</div></div>
@@ -450,13 +478,7 @@
             }
         }
 
-        function deleteGame(slotId, e) {
-            e.stopPropagation();
-            if(confirm("Are you sure you want to completely delete this world? This cannot be undone!")) {
-                localStorage.removeItem('sandboxSave_' + slotId);
-                renderWorldSlots(multiplayerMode);
-            }
-        }
+        function deleteGame(slotId, e) { e.stopPropagation(); if(confirm("Are you sure you want to completely delete this world? This cannot be undone!")) { localStorage.removeItem('sandboxSave_' + slotId); renderWorldSlots(multiplayerMode); } }
 
         function openWorldSelect(mode) { $('main-menu').classList.add('hidden'); $('multi-select').classList.add('hidden'); $('world-select').classList.remove('hidden'); renderWorldSlots(mode); }
         function openMultiplayerMenu() { $('main-menu').classList.add('hidden'); $('multi-select').classList.remove('hidden'); }
@@ -468,14 +490,12 @@
         }
 
         function exitToMainMenu() {
-            saveGame();
-            gameState = 'MENU';
+            saveGame(); gameState = 'MENU';
             if (socket.connected) socket.disconnect();
             $('in-game-menu').classList.add('hidden'); $('ui-layer').style.display = 'none'; $('crafting-grid-modal').style.display = 'none'; gridOpen = false;
             ctx.clearRect(0,0,canvas.width,canvas.height); $('main-menu').classList.remove('hidden');
         }
 
-        // Auto Save on exit/hidden
         window.addEventListener('beforeunload', () => { if(gameState === 'PLAYING' || gameState === 'PAUSED') saveGame(); });
         window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && (gameState === 'PLAYING' || gameState === 'PAUSED')) saveGame(); });
 
@@ -488,7 +508,7 @@
                 let s = localStorage.getItem('clientSave_' + room);
                 if (s) {
                     let d = JSON.parse(s); inventory = d.inventory || inventory; equipment = d.equipment || equipment;
-                    if(equipment.length < 9) equipment = Array.from({length: 9}, (_,i) => equipment[i] || {id: 0, count: 0}); player.hp = d.hp || 100;
+                    if(equipment.length < 9) equipment = Array.from({length: 9}, (_,i) => equipment[i] || {id: 0, count: 0}); player.hp = d.hp || 100; player.maxHp = d.maxHp || 100;
                 }
                 socket.connect(); socket.emit("joinWorld", currentRoom);
             }
@@ -502,9 +522,9 @@
 
         function saveGame() { 
             if (multiplayerMode === 'client' && currentRoom) {
-                localStorage.setItem('clientSave_' + currentRoom, JSON.stringify({ inventory, equipment, hp: player.hp }));
+                localStorage.setItem('clientSave_' + currentRoom, JSON.stringify({ inventory, equipment, hp: player.hp, maxHp: player.maxHp }));
             } else if (currentSlotId && world.length > 0) {
-                localStorage.setItem('sandboxSave_' + currentSlotId, JSON.stringify({ world, worldSurface, bgWorld, inventory, equipment, chestData, time: gameTime, px: player.x, py: player.y, hp: player.hp })); 
+                localStorage.setItem('sandboxSave_' + currentSlotId, JSON.stringify({ world, worldSurface, bgWorld, inventory, equipment, chestData, time: gameTime, px: player.x, py: player.y, hp: player.hp, maxHp: player.maxHp })); 
             }
         }
 
@@ -512,7 +532,7 @@
             let s = localStorage.getItem('sandboxSave_' + slotId); 
             if(s) { 
                 currentSlotId = slotId; currentRoom = slotId; isHost = true;
-                let d = JSON.parse(s); world=d.world; worldSurface=d.worldSurface; bgWorld=d.bgWorld||[]; inventory=d.inventory; equipment=d.equipment; chestData=d.chestData||{}; gameTime=d.time; player.x=d.px; player.y=d.py; player.hp=d.hp; 
+                let d = JSON.parse(s); world=d.world; worldSurface=d.worldSurface; bgWorld=d.bgWorld||[]; inventory=d.inventory; equipment=d.equipment; chestData=d.chestData||{}; gameTime=d.time; player.x=d.px; player.y=d.py; player.hp=d.hp; player.maxHp = d.maxHp || 100;
                 if(equipment.length < 9) equipment = Array.from({length: 9}, (_,i) => equipment[i] || {id: 0, count: 0});
                 $('world-select').classList.add('hidden'); startGameLoop();
             } 
@@ -533,8 +553,7 @@
             let tArr = type === 'equip' ? equipment : type === 'chest' ? chestData[activeChestKey] : inventory; let tSlot = tArr[index];
             if (cursorItem.id !== 0) {
                 if (type === 'equip') { 
-                    let ed = ITEM_DATA[cursorItem.id]; 
-                    if (!ed) return;
+                    let ed = ITEM_DATA[cursorItem.id]; if (!ed) return;
                     if (index >= 3 && index <= 7 && ed.eq !== 'acc') return;
                     if (index < 3 && ed.eq !== index) return;
                     if (index === 8 && ed.eq !== 8) return;
@@ -562,10 +581,7 @@
         }
 
         function recalcStats() { 
-            player.defense = 0;
-            player.baseSpeed = 2.5; player.maxJumps = 1;
-            player.hasDash = false; player.meleeSpeedMod = 1.0;
-            
+            player.defense = 0; player.baseSpeed = 2.5; player.maxJumps = 1; player.hasDash = false; player.meleeSpeedMod = 1.0;
             for (let i=0; i<=7; i++) {
                 if(equipment[i] && equipment[i].id) {
                     player.defense += (ITEM_DATA[equipment[i].id]?.def || 0);
@@ -612,8 +628,10 @@
             renderCrafting('crafting-container', false);
             if (gridOpen) renderCrafting('crafting-grid-content', true);
 
-            let fullHearts = Math.floor(player.hp / 20); let hHtml = ''; for(let i=0; i<5; i++) hHtml += `<div class="heart ${i < fullHearts ? '' : 'empty'}"></div>`; $('health-hearts').innerHTML = hHtml;
-            $('health-text').innerText = `Life: ${Math.floor(player.hp)}/100`;
+            let maxHearts = Math.floor(player.maxHp / 20); let fullHearts = Math.floor(player.hp / 20); let hHtml = ''; 
+            for(let i=0; i<maxHearts; i++) hHtml += `<div class="heart ${i < fullHearts ? '' : 'empty'}"></div>`; 
+            $('health-hearts').innerHTML = hHtml; $('health-text').innerText = `Life: ${Math.floor(player.hp)}/${player.maxHp}`;
+            
             let boss = isHost ? enemies.find(e => e.isBoss) : serverEnemies.find(e => e.isBoss);
             if(boss) { $('boss-bar-container').style.display = 'block'; $('boss-bar').style.width = Math.max(0, (boss.hp / boss.maxHp) * 100) + '%'; $('boss-text').innerText = boss.name || "Boss"; } else $('boss-bar-container').style.display = 'none';
         }
@@ -672,7 +690,6 @@
         });
         window.addEventListener('keyup', e => keys[e.code] = false);
 
-        // --- MASSIVE WORLD GENERATION ---
         let bgWorld = [];
         function generateWorld() {
             let surf = 25;
@@ -701,6 +718,7 @@
                     else if (y > 100 && Math.random() < 0.02) { world[x][y] = BLOCKS.GOLD_ORE; if(x<WORLD_WIDTH-1) world[x+1][y] = BLOCKS.GOLD_ORE; }
                     else if (y > 80 && Math.random() < 0.005) { world[x][y] = BLOCKS.RUBY_ORE; }
                     else if (y > 80 && Math.random() < 0.005) { world[x][y] = BLOCKS.SAPPHIRE_ORE; }
+                    if (y > 40 && world[x][y] === 0 && world[x][y+1] !== 0 && Math.random() < 0.01) world[x][y] = BLOCKS.LIFE_CRYSTAL;
                 } 
             }
             for (let x = 3; x < WORLD_WIDTH - 3; x++) { 
@@ -715,20 +733,18 @@
             $('loading-bar').style.width = '100%';
         }
 
-        // --- PHYSICS & LOGIC ---
         function entityCollide(ent, ax) {
             let l = Math.floor(ent.x/TILE_SIZE), r = Math.floor((ent.x+ent.width)/TILE_SIZE), t = Math.floor(ent.y/TILE_SIZE), b = Math.floor((ent.y+ent.height)/TILE_SIZE);
             if(l<0) l=0; if(r>=WORLD_WIDTH) r=WORLD_WIDTH-1; if(t<0) t=0; if(b>=WORLD_HEIGHT) b=WORLD_HEIGHT-1;
             ent.grounded = false; let dropping = keys['KeyS'] || keys['ArrowDown'];
             for(let x=l; x<=r; x++) for(let y=t; y<=b; y++) {
                 let blk = world[x][y]; 
-                
-                if (blk === BLOCKS.DOOR_CLOSED) { world[x][y] = BLOCKS.DOOR_OPEN; if (socket.connected) socket.emit("blockUpdate", { worldId: currentRoom, x: x, y: y, id: BLOCKS.DOOR_OPEN }); blk = BLOCKS.DOOR_OPEN; }
+                if (blk === BLOCKS.DOOR_CLOSED) { world[x][y] = BLOCKS.DOOR_OPEN; if(world[x][y-1]===BLOCKS.DOOR_CLOSED_TOP) world[x][y-1]=BLOCKS.DOOR_OPEN_TOP; if (socket.connected) socket.emit("blockUpdate", { worldId: currentRoom, x: x, y: y, id: BLOCKS.DOOR_OPEN }); blk = BLOCKS.DOOR_OPEN; }
+                if (blk === BLOCKS.DOOR_CLOSED_TOP) { world[x][y] = BLOCKS.DOOR_OPEN_TOP; if(world[x][y+1]===BLOCKS.DOOR_CLOSED) world[x][y+1]=BLOCKS.DOOR_OPEN; if (socket.connected) socket.emit("blockUpdate", { worldId: currentRoom, x: x, y: y, id: BLOCKS.DOOR_OPEN_TOP }); blk = BLOCKS.DOOR_OPEN_TOP; }
                 
                 let isPlatform = (blk === BLOCKS.PLATFORM || blk === BLOCKS.WORKBENCH || blk === BLOCKS.IRON_ANVIL);
                 
-                // IGNORE NATURAL TREES (WOOD, LEAVES) AND BACKGROUND ELEMENTS FOR COLLISION
-                if(blk !== 0 && blk !== BLOCKS.WATER && blk !== BLOCKS.TORCH && blk !== BLOCKS.WOOD_WALL && blk !== BLOCKS.CACTUS && blk !== BLOCKS.CHEST && blk !== BLOCKS.FURNACE && blk !== BLOCKS.DOOR_OPEN && blk !== BLOCKS.WOOD && blk !== BLOCKS.LEAVES) {
+                if(blk !== 0 && blk !== BLOCKS.WATER && blk !== BLOCKS.TORCH && blk !== BLOCKS.WOOD_WALL && blk !== BLOCKS.CACTUS && blk !== BLOCKS.CHEST && blk !== BLOCKS.FURNACE && blk !== BLOCKS.DOOR_OPEN && blk !== BLOCKS.DOOR_OPEN_TOP && blk !== BLOCKS.WOOD && blk !== BLOCKS.LEAVES && blk !== BLOCKS.LIFE_CRYSTAL) {
                     if (isPlatform) {
                         if (ax === 'y' && ent.vy > 0 && ent.y + ent.height <= y * TILE_SIZE + 10 && !dropping) { ent.y = y * TILE_SIZE - ent.height - 0.1; ent.grounded = true; ent.vy = 0; }
                     } else {
@@ -745,36 +761,26 @@
             let minDist = Math.hypot(player.x - ex, player.y - ey);
             for (let id in otherPlayers) {
                 let p = otherPlayers[id];
-                if (p.x !== undefined) {
-                    let dist = Math.hypot(p.x - ex, p.y - ey);
-                    if (dist < minDist) { minDist = dist; closest = { x: p.x, y: p.y, width: 22, height: 60 }; }
-                }
-            }
-            return closest;
+                if (p.x !== undefined) { let dist = Math.hypot(p.x - ex, p.y - ey); if (dist < minDist) { minDist = dist; closest = { x: p.x, y: p.y, width: 22, height: 60 }; } }
+            } return closest;
         }
 
         function drawPlayerSprite(px, py, pEquip, pItem, pDir, pSwing, cx, cy) {
-            if (!pEquip) pEquip = [];
-            let pw = 22, ph = 60; 
-            
+            if (!pEquip) pEquip = []; let pw = 22, ph = 60; 
             if (playerImg.complete && playerImg.naturalWidth > 0) {
                 ctx.save(); ctx.translate(Math.floor(px - cx + pw/2), Math.floor(py - cy + ph/2)); 
                 if (pDir === -1) ctx.scale(-1, 1); ctx.drawImage(playerImg, -pw/2, -ph/2, pw, ph); ctx.restore();
             } else { ctx.fillStyle = '#fce2c4'; ctx.fillRect(Math.floor(px-cx), Math.floor(py-cy), pw, ph); }
 
-            if (pEquip[1] && (pEquip[1].id === ITEMS.CHEST_ARMOR || pEquip[1].id === ITEMS.IRON_CHEST || pEquip[1].id === ITEMS.GOLD_CHEST)) { ctx.fillStyle = pEquip[1].id===ITEMS.CHEST_ARMOR?'#cda434':pEquip[1].id===ITEMS.IRON_CHEST?'#b0a5a0':'#ffd700'; ctx.fillRect(Math.floor(px-cx), Math.floor(py-cy+ph*0.35), pw, ph*0.3); }
-            if (pEquip[2] && (pEquip[2].id === ITEMS.LEGS || pEquip[2].id === ITEMS.IRON_LEGS || pEquip[2].id === ITEMS.GOLD_LEGS)) { ctx.fillStyle = pEquip[2].id===ITEMS.LEGS?'#cda434':pEquip[2].id===ITEMS.IRON_LEGS?'#b0a5a0':'#ffd700'; ctx.fillRect(Math.floor(px-cx+2), Math.floor(py-cy+ph*0.65), 6, ph*0.35); ctx.fillRect(Math.floor(px-cx+pw-8), Math.floor(py-cy+ph*0.65), 6, ph*0.35); }
-            if (pEquip[0] && (pEquip[0].id === ITEMS.HELMET || pEquip[0].id === ITEMS.IRON_HELMET || pEquip[0].id === ITEMS.GOLD_HELMET)) { ctx.fillStyle = pEquip[0].id===ITEMS.HELMET?'#cda434':pEquip[0].id===ITEMS.IRON_HELMET?'#b0a5a0':'#ffd700'; ctx.fillRect(Math.floor(px-cx-2), Math.floor(py-cy-2), pw+4, ph*0.25); }
+            if (pEquip[1] && (pEquip[1].id === ITEMS.CHEST_ARMOR || pEquip[1].id === ITEMS.IRON_CHEST || pEquip[1].id === ITEMS.GOLD_CHEST || pEquip[1].id === ITEMS.CRIMSON_CHEST)) { ctx.fillStyle = pEquip[1].id===ITEMS.CHEST_ARMOR?'#cda434':pEquip[1].id===ITEMS.IRON_CHEST?'#b0a5a0':pEquip[1].id===ITEMS.GOLD_CHEST?'#ffd700':'#800000'; ctx.fillRect(Math.floor(px-cx), Math.floor(py-cy+ph*0.35), pw, ph*0.3); }
+            if (pEquip[2] && (pEquip[2].id === ITEMS.LEGS || pEquip[2].id === ITEMS.IRON_LEGS || pEquip[2].id === ITEMS.GOLD_LEGS || pEquip[2].id === ITEMS.CRIMSON_LEGS)) { ctx.fillStyle = pEquip[2].id===ITEMS.LEGS?'#cda434':pEquip[2].id===ITEMS.IRON_LEGS?'#b0a5a0':pEquip[2].id===ITEMS.GOLD_LEGS?'#ffd700':'#800000'; ctx.fillRect(Math.floor(px-cx+2), Math.floor(py-cy+ph*0.65), 6, ph*0.35); ctx.fillRect(Math.floor(px-cx+pw-8), Math.floor(py-cy+ph*0.65), 6, ph*0.35); }
+            if (pEquip[0] && (pEquip[0].id === ITEMS.HELMET || pEquip[0].id === ITEMS.IRON_HELMET || pEquip[0].id === ITEMS.GOLD_HELMET || pEquip[0].id === ITEMS.CRIMSON_HELMET)) { ctx.fillStyle = pEquip[0].id===ITEMS.HELMET?'#cda434':pEquip[0].id===ITEMS.IRON_HELMET?'#b0a5a0':pEquip[0].id===ITEMS.GOLD_HELMET?'#ffd700':'#800000'; ctx.fillRect(Math.floor(px-cx-2), Math.floor(py-cy-2), pw+4, ph*0.25); }
 
             if (pSwing > 0 && pItem && pItem.id !== 0) {
                 let isTool = ITEM_DATA[pItem.id];
                 if(isTool && isTool.type !== TOOL_TYPES.BOW && isTool.type !== TOOL_TYPES.MAGIC && SPRITES[pItem.id]) { 
                     ctx.save(); let hX = pDir === 1 ? px - cx + pw - 4 : px - cx + 4; let hY = py - cy + ph*0.5; ctx.translate(hX, hY);
-                    
-                    let pMod = player.meleeSpeedMod || 1;
-                    let useTime = isTool.use * pMod;
-                    let progress = 1 - (pSwing / useTime); 
-                    
+                    let pMod = player.meleeSpeedMod || 1; let useTime = isTool.use * pMod; let progress = 1 - (pSwing / useTime); 
                     if (pDir === 1) { ctx.rotate(-Math.PI/4 + progress * Math.PI); ctx.scale(1.5, 1.5); ctx.drawImage(SPRITES[pItem.id], -16, -28);  
                     } else { ctx.scale(-1, 1); ctx.rotate(-Math.PI/4 + progress * Math.PI); ctx.scale(1.5, 1.5); ctx.drawImage(SPRITES[pItem.id], -16, -28); }
                     ctx.restore();
@@ -784,6 +790,7 @@
 
         let projectiles = []; let miningData = { x: -1, y: -1, progress: 0 };
         let hook = { active: false, x: 0, y: 0, vx: 0, vy: 0, attached: false, life: 0 };
+        let placeCooldown = 0;
 
         const player = {
             x: TILE_SIZE*(WORLD_WIDTH/2), y: 0, width: 22, height: 60, vx: 0, vy: 0, baseSpeed: 2.5, jumpPower: 5, grounded: false, dir: 1, 
@@ -796,7 +803,6 @@
                 let hasRegen = false; for(let i=3; i<=7; i++) if(equipment[i] && equipment[i].id === ITEMS.REGEN_BAND) hasRegen = true;
                 if (this.hp < this.maxHp && gameTime % 60 === 0 && hasRegen) { this.hp = Math.min(this.maxHp, this.hp + 2); triggerUI(); }
 
-                // DASH LOGIC
                 if (keys['KeyA'] && !prevKeys['KeyA']) { if (Date.now() - this.lastTapA < 300 && this.hasDash && this.dashCooldown <= 0) { this.dashTimer = 20; this.dashDir = -1; this.dashCooldown = 60; } this.lastTapA = Date.now(); }
                 if (keys['KeyD'] && !prevKeys['KeyD']) { if (Date.now() - this.lastTapD < 300 && this.hasDash && this.dashCooldown <= 0) { this.dashTimer = 20; this.dashDir = 1; this.dashCooldown = 60; } this.lastTapD = Date.now(); }
                 if (this.dashCooldown > 0) this.dashCooldown--;
@@ -805,7 +811,7 @@
                     if (!hook.attached) {
                         hook.x += hook.vx; hook.y += hook.vy; hook.life--;
                         let tx = Math.floor(hook.x/TILE_SIZE); let ty = Math.floor(hook.y/TILE_SIZE);
-                        if (tx >= 0 && tx < WORLD_WIDTH && ty >= 0 && ty < WORLD_HEIGHT && world[tx][ty] !== 0 && world[tx][ty] !== BLOCKS.WATER && world[tx][ty] !== BLOCKS.DOOR_OPEN && world[tx][ty] !== BLOCKS.TORCH) { hook.attached = true; } else if (hook.life <= 0) { hook.active = false; }
+                        if (tx >= 0 && tx < WORLD_WIDTH && ty >= 0 && ty < WORLD_HEIGHT && world[tx][ty] !== 0 && world[tx][ty] !== BLOCKS.WATER && world[tx][ty] !== BLOCKS.DOOR_OPEN && world[tx][ty] !== BLOCKS.DOOR_OPEN_TOP && world[tx][ty] !== BLOCKS.TORCH) { hook.attached = true; } else if (hook.life <= 0) { hook.active = false; }
                     } else {
                         let dx = hook.x - (this.x + this.width/2), dy = hook.y - (this.y + this.height/2), dist = Math.hypot(dx, dy);
                         if (dist > 30) { this.vx += (dx/dist) * 2; this.vy += (dy/dist) * 2; this.grounded = false; } else { this.vx *= 0.5; this.vy *= 0.5; }
@@ -893,9 +899,8 @@
             }
         };
 
-        // --- ENEMY CLASSES ---
         class Slime {
-            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="Slime"; this.x=x; this.y=y; this.width=24; this.height=16; this.vx=1; this.vy=0; this.jumpPower=6; this.grounded=false; this.jTimer=Math.floor(Math.random()*60); this.hp=30; this.maxHp=30; this.iFrames=0; this.isBoss=false; this.dmg=10; }
+            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="Slime"; this.x=x; this.y=y; this.width=24; this.height=16; this.vx=1; this.vy=0; this.jumpPower=8; this.grounded=false; this.jTimer=Math.floor(Math.random()*60); this.hp=30; this.maxHp=30; this.iFrames=0; this.isBoss=false; this.dmg=10; }
             update() {
                 if(this.iFrames>0) this.iFrames--; this.jTimer--;
                 let inW = world[Math.floor(this.x/TILE_SIZE)] && world[Math.floor(this.x/TILE_SIZE)][Math.floor(this.y/TILE_SIZE)]===BLOCKS.WATER;
@@ -941,7 +946,7 @@
         }
 
         class Zombie {
-            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="Zombie"; this.x=x; this.y=y; this.width=20; this.height=40; this.vx=1; this.vy=0; this.jumpPower=7; this.grounded=false; this.hp=45; this.maxHp=45; this.iFrames=0; this.isBoss=false; this.dmg=15; }
+            constructor(x, y) { this.id = Math.random().toString(36).substr(2, 9); this.type="Zombie"; this.x=x; this.y=y; this.width=20; this.height=40; this.vx=1; this.vy=0; this.jumpPower=9; this.grounded=false; this.hp=45; this.maxHp=45; this.iFrames=0; this.isBoss=false; this.dmg=15; }
             update() {
                 if(this.iFrames>0) this.iFrames--;
                 this.vy+=GRAVITY; if(this.vy>TERMINAL_VELOCITY) this.vy=TERMINAL_VELOCITY;
@@ -1098,7 +1103,13 @@
         };
 
         let enemies = [];
-        const camera = { x: 0, y: 0, update: function() { this.x = player.x-canvas.width/2+player.width/2; this.y = player.y-canvas.height/2+player.height/2; if(this.x<0) this.x=0; if(this.y<0) this.y=0; if(this.x>WORLD_WIDTH*TILE_SIZE-canvas.width) this.x=WORLD_WIDTH*TILE_SIZE-canvas.width; if(this.y>WORLD_HEIGHT*TILE_SIZE-canvas.height) this.y=WORLD_HEIGHT*TILE_SIZE-canvas.height; }};
+        const camera = { x: 0, y: 0, update: function() { 
+            this.x = Math.floor(player.x-canvas.width/2+player.width/2); 
+            this.y = Math.floor(player.y-canvas.height/2+player.height/2); 
+            if(this.x<0) this.x=0; if(this.y<0) this.y=0; 
+            if(this.x>WORLD_WIDTH*TILE_SIZE-canvas.width) this.x=WORLD_WIDTH*TILE_SIZE-canvas.width; 
+            if(this.y>WORLD_HEIGHT*TILE_SIZE-canvas.height) this.y=WORLD_HEIGHT*TILE_SIZE-canvas.height; 
+        }};
 
         function checkStations() {
             let oW = nearWorkbench, oF = nearFurnace, oA = nearAnvil;
@@ -1117,13 +1128,17 @@
         }
 
         let interactCooldown = 0;
+        
         function hasAdjacent(tx, ty) {
-            if (ty >= WORLD_HEIGHT - 1) return true;
-            if (ty > 0 && world[tx][ty-1]) return true;
-            if (world[tx][ty+1]) return true;
-            if (tx > 0 && world[tx-1][ty]) return true;
-            if (tx < WORLD_WIDTH-1 && world[tx+1][ty]) return true;
-            if (bgWorld[tx] && bgWorld[tx][ty]) return true;
+            if (ty >= WORLD_HEIGHT - 1 || ty >= worldSurface[tx]) return true; 
+            const n = [[0,1],[0,-1],[1,0],[-1,0]];
+            for(let [dx, dy] of n) {
+                let nx = tx+dx, ny = ty+dy;
+                if(nx>=0 && nx<WORLD_WIDTH && ny>=0 && ny<WORLD_HEIGHT) {
+                    if(world[nx][ny] !== 0 && world[nx][ny] !== BLOCKS.WATER) return true;
+                    if(bgWorld[nx] && bgWorld[nx][ny] !== 0) return true;
+                }
+            }
             return false;
         }
 
@@ -1133,40 +1148,62 @@
             let pX = player.x+player.width/2, pY = player.y+player.height/2, bX = tX*TILE_SIZE+16, bY = tY*TILE_SIZE+16;
             let actItem = inventory[activeSlot], isTool = ITEM_DATA[actItem?.id];
             
-            if (mouse.rightDown && !mouse.prevRightDown && Math.hypot(bX-pX, bY-pY) <= REACH) {
-                if (world[tX][tY] === BLOCKS.CHEST) { activeChestKey = `${tX},${tY}`; if(!chestData[activeChestKey]) chestData[activeChestKey] = Array.from({length: CHEST_SIZE}, () => ({id: 0, count: 0})); inventoryOpen = true; $('menu-container').style.display = 'flex'; triggerUI(); return; }
-                if (world[tX][tY] === BLOCKS.DOOR_CLOSED) { world[tX][tY] = BLOCKS.DOOR_OPEN; if(socket.connected) socket.emit("blockUpdate", {worldId: currentRoom, x: tX, y: tY, id: BLOCKS.DOOR_OPEN}); return; }
-                if (world[tX][tY] === BLOCKS.DOOR_OPEN) { world[tX][tY] = BLOCKS.DOOR_CLOSED; if(socket.connected) socket.emit("blockUpdate", {worldId: currentRoom, x: tX, y: tY, id: BLOCKS.DOOR_CLOSED}); return; }
+            if (mouse.rightDown && !mouse.prevRightDown) {
+                if (Math.hypot(bX-pX, bY-pY) <= REACH) {
+                    if (world[tX][tY] === BLOCKS.CHEST) { activeChestKey = `${tX},${tY}`; if(!chestData[activeChestKey]) chestData[activeChestKey] = Array.from({length: CHEST_SIZE}, () => ({id: 0, count: 0})); inventoryOpen = true; $('menu-container').style.display = 'flex'; triggerUI(); return; }
+                    
+                    if (world[tX][tY] === BLOCKS.DOOR_CLOSED) { world[tX][tY] = BLOCKS.DOOR_OPEN; if(world[tX][tY-1]===BLOCKS.DOOR_CLOSED_TOP) world[tX][tY-1]=BLOCKS.DOOR_OPEN_TOP; if(socket.connected) socket.emit("blockUpdate", {worldId: currentRoom, x: tX, y: tY, id: BLOCKS.DOOR_OPEN}); return; }
+                    if (world[tX][tY] === BLOCKS.DOOR_CLOSED_TOP) { world[tX][tY] = BLOCKS.DOOR_OPEN_TOP; if(world[tX][tY+1]===BLOCKS.DOOR_CLOSED) world[tX][tY+1]=BLOCKS.DOOR_OPEN; if(socket.connected) socket.emit("blockUpdate", {worldId: currentRoom, x: tX, y: tY, id: BLOCKS.DOOR_OPEN_TOP}); return; }
+                    
+                    if (world[tX][tY] === BLOCKS.DOOR_OPEN) { world[tX][tY] = BLOCKS.DOOR_CLOSED; if(world[tX][tY-1]===BLOCKS.DOOR_OPEN_TOP) world[tX][tY-1]=BLOCKS.DOOR_CLOSED_TOP; if(socket.connected) socket.emit("blockUpdate", {worldId: currentRoom, x: tX, y: tY, id: BLOCKS.DOOR_CLOSED}); return; }
+                    if (world[tX][tY] === BLOCKS.DOOR_OPEN_TOP) { world[tX][tY] = BLOCKS.DOOR_CLOSED_TOP; if(world[tX][tY+1]===BLOCKS.DOOR_OPEN) world[tX][tY+1]=BLOCKS.DOOR_CLOSED; if(socket.connected) socket.emit("blockUpdate", {worldId: currentRoom, x: tX, y: tY, id: BLOCKS.DOOR_CLOSED_TOP}); return; }
+                }
+                
+                if (actItem && actItem.id === ITEMS.LIFE_CRYSTAL && player.maxHp < 400 && interactCooldown <= 0) {
+                    actItem.count--; if(actItem.count<=0) actItem.id=0;
+                    player.maxHp += 20; player.hp += 20; triggerUI(); interactCooldown = 15; spawnParticles(player.x, player.y, '#f22', 15); return;
+                }
+
+                if (interactCooldown===0 && actItem && isHost && (!isTool || isTool.type === TOOL_TYPES.CONSUME)) {
+                    if (actItem.id === ITEMS.SUS_EYE && gameTime >= 12000 && !enemies.some(e => e.isBoss)) { actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new EyeBoss(player.x, player.y - 300)); return; }
+                    if (actItem.id === ITEMS.SLIME_CROWN && !enemies.some(e => e.isBoss)) { actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new KingSlime(player.x, player.y - 300)); return; }
+                    if (actItem.id === ITEMS.SKULL_DOLL && !enemies.some(e => e.isBoss)) { actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new Skeletron(player.x, player.y - 300)); return; }
+                    if (actItem.id === ITEMS.BLOODY_SPINE && !enemies.some(e => e.isBoss)) { actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new BrainBoss(player.x, player.y - 300)); return; }
+                    if (actItem.id === ITEMS.WASP_FOOD && !enemies.some(e => e.isBoss)) { actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new WaspBoss(player.x, player.y - 300)); return; }
+                    if (actItem.id === ITEMS.POWER_CELL && !enemies.some(e => e.isBoss)) { actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new GolemBoss(player.x, player.y - 300)); return; }
+                }
             }
 
             if (inventoryOpen) { miningData.progress = 0; return; }
 
-            if (mouse.rightDown && !mouse.prevRightDown && interactCooldown===0 && actItem && isHost && (!isTool || isTool.type === TOOL_TYPES.CONSUME)) {
-                if (actItem.id === ITEMS.SUS_EYE && gameTime >= 12000 && !enemies.some(e => e.isBoss)) { actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new EyeBoss(player.x, player.y - 300)); return; }
-                if (actItem.id === ITEMS.SLIME_CROWN && !enemies.some(e => e.isBoss)) { actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new KingSlime(player.x, player.y - 300)); return; }
-                if (actItem.id === ITEMS.SKULL_DOLL && !enemies.some(e => e.isBoss)) { actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new Skeletron(player.x, player.y - 300)); return; }
-                if (actItem.id === ITEMS.BLOODY_SPINE && !enemies.some(e => e.isBoss)) { actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new BrainBoss(player.x, player.y - 300)); return; }
-                if (actItem.id === ITEMS.WASP_FOOD && !enemies.some(e => e.isBoss)) { actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new WaspBoss(player.x, player.y - 300)); return; }
-                if (actItem.id === ITEMS.POWER_CELL && !enemies.some(e => e.isBoss)) { actItem.count--; if(actItem.count<=0) actItem.id=0; triggerUI(); interactCooldown=30; enemies.push(new GolemBoss(player.x, player.y - 300)); return; }
-            }
-
             if(Math.hypot(bX-pX, bY-pY) <= REACH) {
-                if(mouse.rightDown && !mouse.prevRightDown && !isTool && actItem?.id>0 && actItem.count>0 && hasAdjacent(tX, tY)) {
+                if(mouse.rightDown && placeCooldown <= 0 && !isTool && actItem?.id>0 && actItem.count>0 && hasAdjacent(tX, tY)) {
+                    if (actItem.id === ITEMS.WOOD_WALL) {
+                        if (!bgWorld[tX]) bgWorld[tX] = [];
+                        if (!bgWorld[tX][tY] || bgWorld[tX][tY] === 0) {
+                            bgWorld[tX][tY] = BLOCKS.WOOD_WALL;
+                            actItem.count--; if(actItem.count<=0) actItem.id=0; placeCooldown = 10;
+                            if(socket.connected) socket.emit("blockUpdate", {worldId: currentRoom, x: tX, y: tY, id: BLOCKS.WOOD_WALL, isBg: true});
+                            triggerUI(); 
+                        }
+                        return;
+                    }
+                    if (actItem.id === ITEMS.WOOD_DOOR) {
+                        if (tY > 0 && tY < WORLD_HEIGHT - 1 && (!world[tX][tY] || world[tX][tY] === 0) && (!world[tX][tY-1] || world[tX][tY-1] === 0) && world[tX][tY+1] !== 0 && world[tX][tY-2] !== 0) {
+                            world[tX][tY] = BLOCKS.DOOR_CLOSED; world[tX][tY-1] = BLOCKS.DOOR_CLOSED_TOP;
+                            actItem.count--; if(actItem.count<=0) actItem.id=0; placeCooldown = 15;
+                            if (socket.connected) { socket.emit("blockUpdate", { worldId: currentRoom, x: tX, y: tY, id: BLOCKS.DOOR_CLOSED }); socket.emit("blockUpdate", { worldId: currentRoom, x: tX, y: tY-1, id: BLOCKS.DOOR_CLOSED_TOP }); }
+                            triggerUI(); 
+                        }
+                        return;
+                    }
+
                     let placeId = actItem.id;
                     if (placeId === BLOCKS.WOOD) placeId = BLOCKS.WOOD_BLOCK;
-                    if (placeId === ITEMS.WOOD_DOOR) placeId = BLOCKS.DOOR_CLOSED;
                     
-                    if (placeId === ITEMS.WOOD_WALL) {
-                        if (!bgWorld[tX]) bgWorld[tX] = [];
-                        if (bgWorld[tX][tY] === 0) {
-                            bgWorld[tX][tY] = BLOCKS.WOOD_WALL;
-                            actItem.count--; if(actItem.count<=0) actItem.id=0;
-                            if(socket.connected) socket.emit("blockUpdate", {worldId: currentRoom, x: tX, y: tY, id: BLOCKS.WOOD_WALL, isBg: true});
-                            triggerUI(); return;
-                        }
-                    } else if((world[tX][tY] === 0 || world[tX][tY] === BLOCKS.WATER)) {
+                    if((world[tX][tY] === 0 || world[tX][tY] === BLOCKS.WATER)) {
                         if(!checkOverlap({x:tX*TILE_SIZE,y:tY*TILE_SIZE,width:32,height:32}, player) || placeId===8 || placeId===BLOCKS.PLATFORM) { 
-                            world[tX][tY]=placeId; actItem.count--; if(actItem.count<=0) actItem.id=0; 
+                            world[tX][tY]=placeId; actItem.count--; if(actItem.count<=0) actItem.id=0; placeCooldown = 10;
                             if (socket.connected) socket.emit("blockUpdate", { worldId: currentRoom, x: tX, y: tY, id: world[tX][tY] });
                             triggerUI(); checkStations(); 
                         }
@@ -1181,27 +1218,34 @@
                         miningData.progress += (isTool ? isTool.dmg : 1);
                         if(miningData.progress > 15) { 
                             if(tBlock === BLOCKS.WOOD) {
-                                let toCheck = [{x: tX, y: tY}]; let checked = new Set();
-                                while(toCheck.length > 0) {
-                                    let curr = toCheck.pop(); let key = curr.x + "," + curr.y;
-                                    if(checked.has(key)) continue; checked.add(key);
-                                    if(curr.x >= 0 && curr.x < WORLD_WIDTH && curr.y >= 0 && curr.y < WORLD_HEIGHT) {
-                                        let blk = world[curr.x][curr.y];
-                                        if(blk === BLOCKS.WOOD || blk === BLOCKS.LEAVES) {
-                                            world[curr.x][curr.y] = 0;
-                                            if(socket.connected) socket.emit("blockUpdate", {worldId: currentRoom, x:curr.x, y:curr.y, id:0});
-                                            if (blk === BLOCKS.WOOD) { giveItem(BLOCKS.WOOD, 1); spawnParticles(curr.x*TILE_SIZE, curr.y*TILE_SIZE, '#4a3018', 4); }
-                                            else spawnParticles(curr.x*TILE_SIZE, curr.y*TILE_SIZE, '#1e7b1e', 4);
-                                            toCheck.push({x: curr.x, y: curr.y-1}); toCheck.push({x: curr.x-1, y: curr.y}); toCheck.push({x: curr.x+1, y: curr.y});
-                                            toCheck.push({x: curr.x-2, y: curr.y}); toCheck.push({x: curr.x+2, y: curr.y}); toCheck.push({x: curr.x, y: curr.y+1}); 
+                                let cy = tY; 
+                                while (cy < WORLD_HEIGHT - 1 && world[tX][cy+1] === BLOCKS.WOOD) cy++; 
+                                while (cy >= 0 && world[tX][cy] === BLOCKS.WOOD) {
+                                    world[tX][cy] = 0; giveItem(BLOCKS.WOOD, 1); spawnParticles(tX*TILE_SIZE, cy*TILE_SIZE, '#4a3018', 4);
+                                    if (socket.connected) socket.emit("blockUpdate", {worldId: currentRoom, x: tX, y: cy, id: 0});
+                                    
+                                    for(let lx = tX-2; lx <= tX+2; lx++) {
+                                        for(let ly = cy-2; ly <= cy+2; ly++) {
+                                            if (lx >= 0 && lx < WORLD_WIDTH && ly >= 0 && ly < WORLD_HEIGHT) {
+                                                if (world[lx][ly] === BLOCKS.LEAVES) {
+                                                    world[lx][ly] = 0; spawnParticles(lx*TILE_SIZE, ly*TILE_SIZE, '#1e7b1e', 4);
+                                                    if (socket.connected) socket.emit("blockUpdate", {worldId: currentRoom, x: lx, y: ly, id: 0});
+                                                }
+                                            }
                                         }
                                     }
+                                    cy--;
                                 }
+                            } else if (tBlock === BLOCKS.DOOR_CLOSED || tBlock === BLOCKS.DOOR_OPEN || tBlock === BLOCKS.DOOR_CLOSED_TOP || tBlock === BLOCKS.DOOR_OPEN_TOP) {
+                                let bY = (tBlock === BLOCKS.DOOR_CLOSED_TOP || tBlock === BLOCKS.DOOR_OPEN_TOP) ? tY + 1 : tY; let tY_top = bY - 1;
+                                world[tX][bY] = 0; world[tX][tY_top] = 0; giveItem(ITEMS.WOOD_DOOR, 1);
+                                spawnParticles(tX*TILE_SIZE, bY*TILE_SIZE, '#5c3a21', 8); 
+                                if (socket.connected) { socket.emit("blockUpdate", { worldId: currentRoom, x: tX, y: bY, id: 0 }); socket.emit("blockUpdate", { worldId: currentRoom, x: tX, y: tY_top, id: 0 }); }
                             } else {
                                 if(tBlock !== BLOCKS.LEAVES) { 
                                     let mined = tBlock===2?1:tBlock===13?1:tBlock; 
                                     if (mined === BLOCKS.WOOD_BLOCK) mined = BLOCKS.WOOD;
-                                    if (mined === BLOCKS.DOOR_CLOSED || mined === BLOCKS.DOOR_OPEN) mined = ITEMS.WOOD_DOOR;
+                                    if (mined === BLOCKS.LIFE_CRYSTAL) mined = ITEMS.LIFE_CRYSTAL;
                                     giveItem(mined, 1); 
                                 }
                                 spawnParticles(tX*TILE_SIZE, tY*TILE_SIZE, getBlockColor(tBlock), 8); 
@@ -1219,6 +1263,7 @@
             if (gameState !== 'PLAYING') return; 
             try {
                 if (interactCooldown > 0) interactCooldown--;
+                if (placeCooldown > 0) placeCooldown--;
                 gameTime = (gameTime+TIME_SPEED)%24000; player.update();
                 
                 if (isHost) {
@@ -1246,6 +1291,9 @@
                                 if(e.name==="Skeletron") giveItem(ITEMS.BONE, 30);
                                 if(e.name==="Eye of Terror") giveItem(ITEMS.SHIELD_OF_CTHULHU, 1);
                                 if(e.name==="King Slime") { giveItem(ITEMS.SLIME_SWORD, 1); giveItem(ITEMS.GEL, 30); }
+                                if(e.name==="Brain of Terror") { giveItem(BLOCKS.CRIMTANE_ORE, 50); giveItem(ITEMS.BRAIN_OF_CONFUSION, 1); }
+                                if(e.name==="Queen Wasp") { giveItem(ITEMS.BEE_KEEPER, 1); giveItem(ITEMS.HONEY_COMB, 1); }
+                                if(e.name==="Ancient Golem") { giveItem(ITEMS.PICKSAW, 1); giveItem(ITEMS.SUN_STONE, 1); }
                                 triggerUI(); 
                             } else {
                                 if (e.constructor.name === 'Slime' && Math.random()>0.3) giveItem(ITEMS.GEL,1); 
@@ -1268,7 +1316,7 @@
                         
                         let tX = Math.floor(p.x/TILE_SIZE), tY = Math.floor(p.y/TILE_SIZE);
                         let hitBlock = false;
-                        if (tX>=0 && tX<WORLD_WIDTH && tY>=0 && tY<WORLD_HEIGHT && world[tX][tY] !== 0 && world[tX][tY] !== 8 && world[tX][tY] !== 4 && world[tX][tY] !== 20 && world[tX][tY] !== 5 && world[tX][tY] !== 11 && world[tX][tY] !== 12 && world[tX][tY] !== 15 && world[tX][tY] !== BLOCKS.DOOR_OPEN) {
+                        if (tX>=0 && tX<WORLD_WIDTH && tY>=0 && tY<WORLD_HEIGHT && world[tX][tY] !== 0 && world[tX][tY] !== 8 && world[tX][tY] !== 4 && world[tX][tY] !== 20 && world[tX][tY] !== 5 && world[tX][tY] !== 11 && world[tX][tY] !== 12 && world[tX][tY] !== 15 && world[tX][tY] !== BLOCKS.DOOR_OPEN && world[tX][tY] !== BLOCKS.DOOR_OPEN_TOP) {
                             if(p.type==='arrow') hitBlock = true; 
                             else if(p.type==='magic') { p.vx *= -1; p.vy *= -1; p.x+=p.vx; p.y+=p.vy; }
                         }
@@ -1320,10 +1368,10 @@
             if (!world || world.length === 0) return; 
             drawBackground();
             
-            let sC = Math.max(0, Math.min(WORLD_WIDTH - 1, Math.floor(camera.x/TILE_SIZE)));
-            let eC = Math.max(sC + 1, Math.min(WORLD_WIDTH, sC + Math.ceil(canvas.width/TILE_SIZE) + 1));
-            let sR = Math.max(0, Math.min(WORLD_HEIGHT - 1, Math.floor(camera.y/TILE_SIZE)));
-            let eR = Math.max(sR + 1, Math.min(WORLD_HEIGHT, sR + Math.ceil(canvas.height/TILE_SIZE) + 1));
+            let sC = Math.max(0, Math.floor(camera.x/TILE_SIZE));
+            let eC = Math.min(WORLD_WIDTH, sC + Math.ceil(canvas.width/TILE_SIZE) + 1);
+            let sR = Math.max(0, Math.floor(camera.y/TILE_SIZE));
+            let eR = Math.min(WORLD_HEIGHT, sR + Math.ceil(canvas.height/TILE_SIZE) + 1);
 
             let vW = eC - sC, vH = eR - sR; if(vH <= 0 || vW <= 0) return; 
             let lightMap = new Float32Array(vW * vH); 
@@ -1357,16 +1405,24 @@
 
             for(let x=sC; x<eC; x++) {
                 for(let y=sR; y<eR; y++) {
-                    let dX = Math.floor(x*TILE_SIZE-camera.x), dY = Math.floor(y*TILE_SIZE-camera.y);
-                    if (y >= worldSurface[x]) { ctx.fillStyle = y > 35 ? '#1a1a1a' : '#2a1a0a'; ctx.fillRect(dX, dY, TILE_SIZE+1, TILE_SIZE+1); }
-                    if (bgWorld[x] && bgWorld[x][y] && SPRITES[bgWorld[x][y]]) { ctx.drawImage(SPRITES[bgWorld[x][y]], dX, dY, TILE_SIZE+1, TILE_SIZE+1); }
-                    let t = world[x][y]; if (t !== 0 && SPRITES[t]) ctx.drawImage(SPRITES[t], dX, dY, TILE_SIZE+1, TILE_SIZE+1);
+                    let dX = x*TILE_SIZE - camera.x, dY = y*TILE_SIZE - camera.y;
+                    
+                    let t = world[x][y];
+                    let bg = (bgWorld[x] && bgWorld[x][y]) ? bgWorld[x][y] : 0;
+
+                    if (y >= worldSurface[x]) { ctx.fillStyle = y > 35 ? '#1a1a1a' : '#2a1a0a'; ctx.fillRect(dX, dY, TILE_SIZE, TILE_SIZE); }
+                    if (bg !== 0 && SPRITES[bg]) { ctx.drawImage(SPRITES[bg], dX, dY, TILE_SIZE, TILE_SIZE); }
+                    if (t !== 0 && SPRITES[t]) { ctx.drawImage(SPRITES[t], dX, dY, TILE_SIZE, TILE_SIZE); }
                     if (miningData.progress > 0 && miningData.x === x && miningData.y === y) {
                         let cSp = miningData.progress > 12 ? SPRITES['CRACK_3'] : miningData.progress > 6 ? SPRITES['CRACK_2'] : SPRITES['CRACK_1'];
-                        if(cSp) ctx.drawImage(cSp, dX, dY, TILE_SIZE+1, TILE_SIZE+1);
+                        if(cSp) ctx.drawImage(cSp, dX, dY, TILE_SIZE, TILE_SIZE);
                     }
+
+                    // Optimized Light Rendering (Skipping empty sky massively boosts FPS and fixes grid lines)
                     let lightLevel = lightMap[(x-sC) + (y-sR)*vW];
-                    if (lightLevel < 1) { ctx.fillStyle = `rgba(0,0,0,${1 - lightLevel})`; ctx.fillRect(dX, dY, TILE_SIZE+1, TILE_SIZE+1); }
+                    if (lightLevel < 1 && (y >= worldSurface[x] || t !== 0 || bg !== 0)) { 
+                        ctx.fillStyle = `rgba(0,0,0,${1 - lightLevel})`; ctx.fillRect(dX, dY, TILE_SIZE, TILE_SIZE); 
+                    }
                 }
             }
             
